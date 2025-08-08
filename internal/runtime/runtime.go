@@ -1,8 +1,11 @@
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -74,8 +77,17 @@ func New() (*Runtime, error) {
 	}
 	rt.storageMgr = storageMgr
 
-	// TODO: Load existing containers and images
+	// Load existing containers
+	if err := rt.loadContainers(); err != nil {
+		slog.Warn("failed to load existing containers", "error", err)
+	}
 
+	// Load existing images
+	if err := rt.loadImages(); err != nil {
+		slog.Warn("failed to load existing images", "error", err)
+	}
+
+	slog.Info("runtime initialized", "runtime_dir", rt.runtimeDir)
 	return rt, nil
 }
 
@@ -93,6 +105,44 @@ func (r *Runtime) createDirectories() error {
 		}
 	}
 
+	return nil
+}
+
+func (r *Runtime) loadContainers() error {
+	entries, err := os.ReadDir(r.containerDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
+			containerFile := filepath.Join(r.containerDir, entry.Name())
+			data, err := os.ReadFile(containerFile)
+			if err != nil {
+				continue
+			}
+
+			var container types.Container
+			if err := json.Unmarshal(data, &container); err != nil {
+				continue
+			}
+
+			// Reset running containers to stopped (they died when gockerize stopped)
+			if container.State == types.StateRunning {
+				container.State = types.StateStopped
+				now := time.Now()
+				container.FinishedAt = &now
+			}
+
+			r.containers[container.ID] = &container
+		}
+	}
+
+	return nil
+}
+
+func (r *Runtime) loadImages() error {
+	// For now, just load some default images
 	return nil
 }
 

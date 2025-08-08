@@ -127,7 +127,7 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 
 // setupCgroups creates and configures cgroups for the container
 func (m *Manager) setupCgroups(container *types.Container) error {
-	cgroupPath := filepath.Join("/sys/fs/cgroup", "dockerize", container.ID)
+	cgroupPath := filepath.Join("/sys/fs/cgroup", "gockerize", container.ID)
 
 	// Create cgroup directory
 	if err := os.MkdirAll(cgroupPath, 0755); err != nil {

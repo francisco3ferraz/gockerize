@@ -11,10 +11,10 @@ import (
 
 const (
 	version = "0.1.0"
-	usage   = `dockerize - A lightweight container runtime
+	usage   = `gockerize - A lightweight container runtime
 
 				Usage:
-				dockerize <command> [options]
+				gockerize <command> [options]
 
 				Commands:
 				run     Run a new container
@@ -29,12 +29,12 @@ const (
 				-h, --help       Show help
 
 				Examples:
-				dockerize run alpine:latest /bin/sh
-				dockerize ps
-				dockerize stop container_id
-				dockerize rm container_id
-				dockerize images
-				dockerize version
+				gockerize run alpine:latest /bin/sh
+				gockerize ps
+				gockerize stop container_id
+				gockerize rm container_id
+				gockerize images
+				gockerize version
 				`
 )
 

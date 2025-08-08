@@ -68,7 +68,13 @@ func New() (*Runtime, error) {
 	}
 	rt.networkMgr = networkMgr
 
-	// TODO: STORAGE
+	storageMgr, err := container.NewStorageManager(rt.imageDir, rt.containerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create storage manager: %w", err)
+	}
+	rt.storageMgr = storageMgr
+
+	// TODO: Load existing containers and images
 
 	return rt, nil
 }

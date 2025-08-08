@@ -62,7 +62,12 @@ func New() (*Runtime, error) {
 	}
 	rt.containerMgr = containerMgr
 
-	// TODO: NETWORK
+	networkMgr, err := container.NewNetworkManager(rt.networkDir, DefaultBridgeName, DefaultSubnet)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create network manager: %w", err)
+	}
+	rt.networkMgr = networkMgr
+
 	// TODO: STORAGE
 
 	return rt, nil

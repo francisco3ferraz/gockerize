@@ -1,20 +1,24 @@
 package runtime
 
 import (
+	"fmt"
+	"os"
 	"sync"
+	"time"
 
+	"github.com/francisco3ferraz/gockerize/internal/container"
 	"github.com/francisco3ferraz/gockerize/pkg/types"
 )
 
 const (
 	// Default paths
-	DefaultRuntimeDir   = "/var/lib/dockerize"
-	DefaultImageDir     = "/var/lib/dockerize/images"
-	DefaultContainerDir = "/var/lib/dockerize/containers"
-	DefaultNetworkDir   = "/var/lib/dockerize/networks"
+	DefaultRuntimeDir   = "/var/lib/gockerize"
+	DefaultImageDir     = "/var/lib/gockerize/images"
+	DefaultContainerDir = "/var/lib/gockerize/containers"
+	DefaultNetworkDir   = "/var/lib/gockerize/networks"
 
 	// Configuration
-	DefaultBridgeName = "dockerize0"
+	DefaultBridgeName = "gockerize0"
 	DefaultSubnet     = "172.17.0.0/16"
 )
 
@@ -46,7 +50,42 @@ func New() (*Runtime, error) {
 		networkDir:   DefaultNetworkDir,
 	}
 
-	// TODO: Initialize managers
+	// Create runtime directories
+	if err := rt.createDirectories(); err != nil {
+		return nil, fmt.Errorf("failed to create runtime directories: %w", err)
+	}
+
+	// Initialize managers
+	containerMgr, err := container.NewManager(rt.containerDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create container manager: %w", err)
+	}
+	rt.containerMgr = containerMgr
+
+	// TODO: NETWORK
+	// TODO: STORAGE
 
 	return rt, nil
+}
+
+func (r *Runtime) createDirectories() error {
+	dirs := []string{
+		r.runtimeDir,
+		r.imageDir,
+		r.containerDir,
+		r.networkDir,
+	}
+
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+
+	return nil
+}
+
+// generateID generates a random container/image ID
+func generateID() string {
+	return fmt.Sprintf("%x", time.Now().UnixNano())
 }

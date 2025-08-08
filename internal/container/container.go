@@ -125,6 +125,117 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	return nil
 }
 
+// Stop stops a running container
+func (m *Manager) Stop(ctx context.Context, container *types.Container, timeout time.Duration) error {
+	if container.State != types.StateRunning {
+		return fmt.Errorf("container not running: %s", container.ID)
+	}
+
+	if container.PID == 0 {
+		return fmt.Errorf("container has no PID: %s", container.ID)
+	}
+
+	// Find the process
+	process, err := os.FindProcess(container.PID)
+	if err != nil {
+		return fmt.Errorf("failed to find process %d: %w", container.PID, err)
+	}
+
+	// Try graceful shutdown first (SIGTERM)
+	slog.Info("sending SIGTERM to container", "id", container.ID, "pid", container.PID)
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		slog.Warn("failed to send SIGTERM", "container", container.ID, "error", err)
+	}
+
+	// Wait for graceful shutdown
+	done := make(chan error, 1)
+	go func() {
+		_, err := process.Wait()
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			slog.Warn("process wait error", "container", container.ID, "error", err)
+		}
+	case <-time.After(timeout):
+		// Force kill if timeout exceeded
+		slog.Info("timeout exceeded, sending SIGKILL", "id", container.ID, "pid", container.PID)
+		if err := process.Signal(syscall.SIGKILL); err != nil {
+			slog.Warn("failed to send SIGKILL", "container", container.ID, "error", err)
+		}
+		// Wait a bit more for SIGKILL to take effect
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			slog.Warn("container may still be running after SIGKILL", "id", container.ID)
+		}
+	}
+
+	// Update container state
+	container.State = types.StateStopped
+	container.PID = 0
+	now := time.Now()
+	container.FinishedAt = &now
+
+	// Cleanup cgroups
+	if err := m.cleanupCgroups(container); err != nil {
+		slog.Warn("failed to cleanup cgroups", "container", container.ID, "error", err)
+	}
+
+	slog.Info("container stopped", "id", container.ID, "name", container.Name)
+	return nil
+}
+
+// Remove removes a container and its resources
+func (m *Manager) Remove(ctx context.Context, container *types.Container, force bool) error {
+	// Ensure container is stopped
+	if container.State == types.StateRunning {
+		if !force {
+			return fmt.Errorf("cannot remove running container: %s", container.ID)
+		}
+		if err := m.Stop(ctx, container, 10*time.Second); err != nil {
+			slog.Warn("failed to stop container during removal", "container", container.ID, "error", err)
+		}
+	}
+
+	// Remove container directory
+	containerPath := filepath.Join(m.containerDir, container.ID)
+	if err := os.RemoveAll(containerPath); err != nil {
+		slog.Warn("failed to remove container directory", "container", container.ID, "error", err)
+	}
+
+	slog.Info("container removed", "id", container.ID, "name", container.Name)
+	return nil
+}
+
+// Wait waits for a container to exit and returns the exit code
+func (m *Manager) Wait(ctx context.Context, container *types.Container) (int, error) {
+	if container.State != types.StateRunning || container.PID == 0 {
+		return container.ExitCode, nil
+	}
+
+	process, err := os.FindProcess(container.PID)
+	if err != nil {
+		return -1, fmt.Errorf("failed to find process %d: %w", container.PID, err)
+	}
+
+	// Wait for the process to exit
+	processState, err := process.Wait()
+	if err != nil {
+		return -1, fmt.Errorf("failed to wait for process: %w", err)
+	}
+
+	exitCode := processState.ExitCode()
+	container.ExitCode = exitCode
+	container.State = types.StateExited
+	now := time.Now()
+	container.FinishedAt = &now
+
+	return exitCode, nil
+}
+
 // setupCgroups creates and configures cgroups for the container
 func (m *Manager) setupCgroups(container *types.Container) error {
 	cgroupPath := filepath.Join("/sys/fs/cgroup", "gockerize", container.ID)
@@ -158,6 +269,12 @@ func (m *Manager) setupCgroups(container *types.Container) error {
 	}
 
 	return nil
+}
+
+// cleanupCgroups removes the container's cgroup
+func (m *Manager) cleanupCgroups(container *types.Container) error {
+	cgroupPath := filepath.Join("/sys/fs/cgroup", "dockerize", container.ID)
+	return os.RemoveAll(cgroupPath)
 }
 
 // generateContainerID generates a unique container ID

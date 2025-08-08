@@ -273,7 +273,7 @@ func (m *Manager) setupCgroups(container *types.Container) error {
 
 // cleanupCgroups removes the container's cgroup
 func (m *Manager) cleanupCgroups(container *types.Container) error {
-	cgroupPath := filepath.Join("/sys/fs/cgroup", "dockerize", container.ID)
+	cgroupPath := filepath.Join("/sys/fs/cgroup", "gockerize", container.ID)
 	return os.RemoveAll(cgroupPath)
 }
 

@@ -82,6 +82,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 
 	// Build container configuration
 	config := &types.ContainerConfig{
+		Command:    command,    // Set the command in config
 		RootFS:     imageName, // For now, image name is the rootfs
 		WorkingDir: *workdir,
 		Hostname:   *hostname,
@@ -129,9 +130,6 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create container: %w", err)
 	}
-
-	// Update command
-	container.Command = command
 
 	// Start container
 	if err := h.runtime.StartContainer(ctx, container.ID); err != nil {

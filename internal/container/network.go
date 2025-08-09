@@ -49,29 +49,33 @@ func (nm *NetworkManager) SetupNetwork(ctx context.Context, container *types.Con
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
 
-	slog.Info("setting up network for container", "id", container.ID)
+	slog.Info("setting up network for container", "id", container.ID, "pid", container.PID)
 
 	// Generate unique veth pair names
 	vethHost := fmt.Sprintf("veth%s", container.ID[:8])
 	vethGuest := fmt.Sprintf("vethg%s", container.ID[:7])
 
+	slog.Debug("creating veth pair", "host", vethHost, "guest", vethGuest)
 	// Create veth pair
 	if err := nm.createVethPair(vethHost, vethGuest); err != nil {
 		return fmt.Errorf("failed to create veth pair: %w", err)
 	}
 
+	slog.Debug("attaching veth to bridge", "veth", vethHost, "bridge", nm.bridgeName)
 	// Attach host veth to bridge
 	if err := nm.attachToBridge(vethHost); err != nil {
 		nm.deleteVethPair(vethHost) // Cleanup on failure
 		return fmt.Errorf("failed to attach to bridge: %w", err)
 	}
 
+	slog.Debug("bringing up host veth", "veth", vethHost)
 	// Bring up host veth
 	if err := nm.linkUp(vethHost); err != nil {
 		nm.deleteVethPair(vethHost)
 		return fmt.Errorf("failed to bring up host veth: %w", err)
 	}
 
+	slog.Debug("moving guest veth to container netns", "veth", vethGuest, "pid", container.PID)
 	// Move guest veth to container network namespace
 	if err := nm.moveToNetNS(vethGuest, container.PID); err != nil {
 		nm.deleteVethPair(vethHost)
@@ -80,6 +84,7 @@ func (nm *NetworkManager) SetupNetwork(ctx context.Context, container *types.Con
 
 	// Assign IP to container interface
 	containerIP := nm.getNextIP()
+	slog.Debug("configuring container interface", "veth", vethGuest, "ip", containerIP, "pid", container.PID)
 	if err := nm.configureContainerInterface(container.PID, vethGuest, containerIP); err != nil {
 		nm.deleteVethPair(vethHost)
 		return fmt.Errorf("failed to configure container interface: %w", err)
@@ -216,12 +221,15 @@ func (nm *NetworkManager) moveToNetNS(iface string, pid int) error {
 
 // configureContainerInterface configures the network interface inside the container
 func (nm *NetworkManager) configureContainerInterface(pid int, iface, ip string) error {
+	slog.Debug("configuring container interface", "pid", pid, "iface", iface, "ip", ip)
+
 	// Run commands inside the container's network namespace
 	nsenterCmd := func(args ...string) *exec.Cmd {
 		fullArgs := append([]string{"-t", strconv.Itoa(pid), "-n", "--"}, args...)
 		return exec.Command("nsenter", fullArgs...)
 	}
 
+	slog.Debug("renaming interface to eth0", "from", iface)
 	// Rename interface to eth0
 	cmd := nsenterCmd("ip", "link", "set", iface, "name", "eth0")
 	if err := cmd.Run(); err != nil {

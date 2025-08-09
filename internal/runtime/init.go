@@ -20,6 +20,8 @@ func ContainerInit() error {
 	if err == nil {
 		defer f.Close()
 		f.WriteString(fmt.Sprintf("container-init started at %v\n", time.Now()))
+		f.WriteString(fmt.Sprintf("PID: %d, PPID: %d\n", os.Getpid(), os.Getppid()))
+		f.WriteString(fmt.Sprintf("Args: %v\n", os.Args))
 	}
 
 	slog.Info("initializing container environment")

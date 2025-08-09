@@ -271,7 +271,14 @@ func (sm *StorageManager) copyEssentialBinaries(rootfsDir string) error {
 	}
 
 	// Try to copy some essential libraries
-	libDirs := []string{"/lib", "/lib64", "/usr/lib"}
+	libDirs := []string{
+		"/lib",
+		"/lib64",
+		"/usr/lib",
+		"/lib/x86_64-linux-gnu",
+		"/usr/lib/x86_64-linux-gnu",
+		"/lib64/x86_64-linux-gnu",
+	}
 	for _, libDir := range libDirs {
 		if _, err := os.Stat(libDir); err != nil {
 			continue
@@ -291,7 +298,13 @@ func (sm *StorageManager) copyEssentialBinaries(rootfsDir string) error {
 				continue
 			}
 
-			destPath := filepath.Join(rootfsDir, libDir, lib)
+			// For architecture-specific lib dirs, preserve the structure
+			var destPath string
+			if strings.Contains(libDir, "x86_64-linux-gnu") {
+				destPath = filepath.Join(rootfsDir, libDir, lib)
+			} else {
+				destPath = filepath.Join(rootfsDir, libDir, lib)
+			}
 			destDir := filepath.Dir(destPath)
 
 			if err := os.MkdirAll(destDir, 0755); err != nil {

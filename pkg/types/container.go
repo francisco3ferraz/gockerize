@@ -34,6 +34,9 @@ type Container struct {
 
 // ContainerConfig holds container configuration
 type ContainerConfig struct {
+	// Command and args
+	Command []string `json:"command,omitempty"`
+
 	// Resource limits
 	Memory    int64 `json:"memory,omitempty"`     // bytes
 	CPUShares int64 `json:"cpu_shares,omitempty"` // relative weight

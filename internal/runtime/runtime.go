@@ -107,7 +107,7 @@ func (r *Runtime) CreateContainer(ctx context.Context, config *types.ContainerCo
 		ID:        containerID,
 		Name:      containerName,
 		Image:     config.RootFS,       // For now, image name is the rootfs path
-		Command:   []string{"/bin/sh"}, // Default command
+		Command:   config.Command,      // Use command from config
 		State:     types.StateCreated,
 		CreatedAt: time.Now(),
 		Config:    config,
@@ -161,25 +161,31 @@ func (r *Runtime) StartContainer(ctx context.Context, containerID string) error 
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
-	// Setup networking after container is started (so we have the PID)
-	if err := r.networkMgr.SetupNetwork(ctx, container); err != nil {
-		// Cleanup container on network failure
-		r.containerMgr.Stop(ctx, container, 5*time.Second)
-		return fmt.Errorf("failed to setup network: %w", err)
-	}
+	// TODO: Temporarily skip network setup to debug container init
+	slog.Info("skipping network setup for debugging")
+	/*
+		// Setup networking after container is started (so we have the PID)
+		if err := r.networkMgr.SetupNetwork(ctx, container); err != nil {
+			// Cleanup container on network failure
+			r.containerMgr.Stop(ctx, container, 5*time.Second)
+			return fmt.Errorf("failed to setup network: %w", err)
+		}
+	*/
 
 	// Update container state
 	now := time.Now()
 	container.State = types.StateRunning
 	container.StartedAt = &now
 
-	// Get network info
-	networkInfo, err := r.networkMgr.GetNetworkInfo(container)
-	if err != nil {
-		slog.Warn("failed to get network info", "container", container.ID, "error", err)
-	} else {
-		container.NetworkInfo = networkInfo
-	}
+	// Get network info (skipped for now)
+	/*
+		networkInfo, err := r.networkMgr.GetNetworkInfo(container)
+		if err != nil {
+			slog.Warn("failed to get network info", "container", container.ID, "error", err)
+		} else {
+			container.NetworkInfo = networkInfo
+		}
+	*/
 
 	// Persist state
 	if err := r.saveContainer(container); err != nil {

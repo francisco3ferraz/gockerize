@@ -37,7 +37,7 @@ func (m *Manager) Create(ctx context.Context, config *types.ContainerConfig) (*t
 		ID:        containerID,
 		Name:      containerName,
 		Image:     config.RootFS,
-		Command:   []string{"/bin/sh"}, // Default for now
+		Command:   config.Command, // Use command from config
 		State:     types.StateCreated,
 		CreatedAt: time.Now(),
 		Config:    config,
@@ -62,27 +62,9 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	// Prepare the container process
 	cmd := exec.CommandContext(ctx, "/proc/self/exe", "container-init")
 
-	// Set up namespaces - this is where the magic happens
+	// Set up namespaces - testing mount namespace only
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWNS | // Mount namespace
-			syscall.CLONE_NEWPID | // PID namespace
-			syscall.CLONE_NEWNET | // Network namespace
-			syscall.CLONE_NEWUTS | // UTS namespace (hostname)
-			syscall.CLONE_NEWIPC, // IPC namespace
-		UidMappings: []syscall.SysProcIDMap{
-			{
-				ContainerID: 0,
-				HostID:      os.Getuid(),
-				Size:        1,
-			},
-		},
-		GidMappings: []syscall.SysProcIDMap{
-			{
-				ContainerID: 0,
-				HostID:      os.Getgid(),
-				Size:        1,
-			},
-		},
+		Cloneflags: syscall.CLONE_NEWNS, // Mount namespace only
 	}
 
 	// Set environment variables for container init
@@ -106,13 +88,22 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		cmd.Dir = container.Config.WorkingDir
 	}
 
+	// Connect container's stdout/stderr to parent's stdout/stderr
+	// This allows the container output to be visible
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
 	// Start the process
 	slog.Debug("about to start container process", "container", container.ID, "cmd", cmd.Args)
+
+	// Try a simpler approach first - let's see if the issue is with namespaces
+	slog.Debug("starting container process now...")
 	if err := cmd.Start(); err != nil {
+		slog.Error("failed to start container process", "container", container.ID, "error", err)
 		return fmt.Errorf("failed to start container process: %w", err)
 	}
 
-	slog.Debug("container process started", "container", container.ID, "pid", cmd.Process.Pid)
+	slog.Debug("container process started successfully", "container", container.ID, "pid", cmd.Process.Pid)
 
 	// Update container with process info
 	container.PID = cmd.Process.Pid

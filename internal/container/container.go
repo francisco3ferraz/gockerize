@@ -2,13 +2,13 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -105,8 +105,8 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	// Prepare the container process
 	cmd := exec.CommandContext(ctx, "/proc/self/exe", "container-init")
 
-	// Set up namespaces - mount, network, and PID are always used for security
-	cloneFlags := uintptr(syscall.CLONE_NEWNS | syscall.CLONE_NEWNET | syscall.CLONE_NEWPID)
+	// Set up namespaces - mount, network, PID, and UTS are always used for security
+	cloneFlags := uintptr(syscall.CLONE_NEWNS | syscall.CLONE_NEWNET | syscall.CLONE_NEWPID | syscall.CLONE_NEWUTS)
 
 	// Conditionally add user namespace based on config
 	if container.Config.UserNamespace {
@@ -123,20 +123,26 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 			GidMappings: gidMappings,
 		}
 
-		slog.Info("container will use user namespace isolation", "container", container.ID, "namespaces", "mount+network+pid+user")
+		slog.Info("container will use user namespace isolation", "container", container.ID, "namespaces", "mount+network+pid+uts+user")
 	} else {
 		cmd.SysProcAttr = &syscall.SysProcAttr{
 			Cloneflags: cloneFlags,
 		}
 
-		slog.Info("container will run without user namespace (traditional mode)", "container", container.ID, "namespaces", "mount+network+pid")
+		slog.Info("container will run without user namespace (traditional mode)", "container", container.ID, "namespaces", "mount+network+pid+uts")
 	}
 
 	// Set environment variables for container init
+	// Encode command as JSON to preserve argument structure
+	cmdJSON, err := json.Marshal(container.Command)
+	if err != nil {
+		return fmt.Errorf("failed to encode command: %w", err)
+	}
+
 	cmd.Env = []string{
 		fmt.Sprintf("CONTAINER_ID=%s", container.ID),
 		fmt.Sprintf("CONTAINER_ROOTFS=%s", container.Config.RootFS),
-		fmt.Sprintf("CONTAINER_CMD=%s", strings.Join(container.Command, " ")),
+		fmt.Sprintf("CONTAINER_CMD_JSON=%s", string(cmdJSON)),
 		fmt.Sprintf("CONTAINER_HOSTNAME=%s", container.Config.Hostname),
 		"WAIT_FOR_NETWORK=true", // Signal that container should wait for network setup
 	}

@@ -1,12 +1,12 @@
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -29,18 +29,18 @@ func ContainerInit() error {
 	// Get container configuration from environment
 	containerID := os.Getenv("CONTAINER_ID")
 	rootfs := os.Getenv("CONTAINER_ROOTFS")
-	cmdStr := os.Getenv("CONTAINER_CMD")
+	cmdJSON := os.Getenv("CONTAINER_CMD_JSON")
 	hostname := os.Getenv("CONTAINER_HOSTNAME")
 
 	if f != nil {
-		f.WriteString(fmt.Sprintf("env vars: ID=%s, rootfs=%s, cmd=%s, hostname=%s\n",
-			containerID, rootfs, cmdStr, hostname))
+		f.WriteString(fmt.Sprintf("env vars: ID=%s, rootfs=%s, cmd_json=%s, hostname=%s\n",
+			containerID, rootfs, cmdJSON, hostname))
 	}
 
 	slog.Debug("container init environment",
 		"id", containerID,
 		"rootfs", rootfs,
-		"cmd", cmdStr,
+		"cmd_json", cmdJSON,
 		"hostname", hostname)
 
 	if containerID == "" || rootfs == "" {
@@ -84,8 +84,12 @@ func ContainerInit() error {
 
 	// Parse command
 	var cmd []string
-	if cmdStr != "" {
-		cmd = strings.Fields(cmdStr)
+	if cmdJSON != "" {
+		// Decode JSON command to preserve argument structure
+		if err := json.Unmarshal([]byte(cmdJSON), &cmd); err != nil {
+			slog.Error("failed to decode command JSON", "error", err)
+			cmd = []string{"/bin/sh"}
+		}
 	} else {
 		cmd = []string{"/bin/sh"}
 	}

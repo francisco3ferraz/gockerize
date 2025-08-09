@@ -84,8 +84,13 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		cmd.Dir = container.Config.WorkingDir
 	}
 
+	// Setup I/O connections based on container config
+	if container.Config.Interactive {
+		// Connect stdin for interactive mode
+		cmd.Stdin = os.Stdin
+	}
+	
 	// Connect container's stdout/stderr to parent's stdout/stderr
-	// This allows the container output to be visible
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

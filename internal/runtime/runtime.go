@@ -178,15 +178,12 @@ func (r *Runtime) StartContainer(ctx context.Context, containerID string) error 
 	container.State = types.StateRunning
 	container.StartedAt = &now
 
-	// Get network info (skipped for now)
-	/*
-		networkInfo, err := r.networkMgr.GetNetworkInfo(container)
-		if err != nil {
-			slog.Warn("failed to get network info", "container", container.ID, "error", err)
-		} else {
-			container.NetworkInfo = networkInfo
-		}
-	*/
+	networkInfo, err := r.networkMgr.GetNetworkInfo(container)
+	if err != nil {
+		slog.Warn("failed to get network info", "container", container.ID, "error", err)
+	} else {
+		container.NetworkInfo = networkInfo
+	}
 
 	// Persist state
 	if err := r.saveContainer(container); err != nil {
@@ -442,11 +439,19 @@ func (r *Runtime) loadContainers() error {
 				continue
 			}
 
-			// Reset running containers to stopped (they died when gockerize stopped)
-			if container.State == types.StateRunning {
-				container.State = types.StateStopped
-				now := time.Now()
-				container.FinishedAt = &now
+			// Check if running containers are actually still running
+			if container.State == types.StateRunning && container.PID > 0 {
+				if r.isProcessRunning(container.PID) {
+					// Process is still running, keep as running
+					slog.Info("found running container", "id", container.ID[:12], "pid", container.PID)
+				} else {
+					// Process died, mark as stopped
+					container.State = types.StateExited
+					container.ExitCode = -1 // Unknown exit code
+					now := time.Now()
+					container.FinishedAt = &now
+					slog.Info("found dead container", "id", container.ID[:12], "pid", container.PID)
+				}
 			}
 
 			r.containers[container.ID] = &container

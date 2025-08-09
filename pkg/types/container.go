@@ -57,6 +57,10 @@ type ContainerConfig struct {
 	Env  []string `json:"env,omitempty"`
 	User string   `json:"user,omitempty"`
 
+	// Interactive/TTY
+	Interactive bool `json:"interactive,omitempty"`
+	TTY         bool `json:"tty,omitempty"`
+
 	// Security
 	Privileged   bool     `json:"privileged,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`

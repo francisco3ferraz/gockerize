@@ -31,14 +31,16 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 	runFlags := flag.NewFlagSet("run", flag.ExitOnError)
 
 	var (
-		detach    = runFlags.Bool("d", false, "run in detached mode")
-		hostname  = runFlags.String("hostname", "", "container hostname")
-		memory    = runFlags.String("m", "", "memory limit (e.g., 512m, 1g)")
-		cpuShares = runFlags.Int64("cpu-shares", 0, "CPU shares (relative weight)")
-		workdir   = runFlags.String("w", "", "working directory")
-		env       = runFlags.String("e", "", "environment variables (comma-separated key=value pairs)")
-		ports     = runFlags.String("p", "", "port mappings (e.g., 8080:80)")
-		volumes   = runFlags.String("v", "", "volume mounts (e.g., /host:/container)")
+		detach      = runFlags.Bool("d", false, "run in detached mode")
+		interactive = runFlags.Bool("i", false, "run in interactive mode")
+		tty         = runFlags.Bool("t", false, "allocate a pseudo-TTY")
+		hostname    = runFlags.String("hostname", "", "container hostname")
+		memory      = runFlags.String("m", "", "memory limit (e.g., 512m, 1g)")
+		cpuShares   = runFlags.Int64("cpu-shares", 0, "CPU shares (relative weight)")
+		workdir     = runFlags.String("w", "", "working directory")
+		env         = runFlags.String("e", "", "environment variables (comma-separated key=value pairs)")
+		ports       = runFlags.String("p", "", "port mappings (e.g., 8080:80)")
+		volumes     = runFlags.String("v", "", "volume mounts (e.g., /host:/container)")
 	)
 
 	runFlags.Usage = func() {
@@ -48,6 +50,8 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 
 			Options:
 			-d, --detach          Run in detached mode
+			-i, --interactive     Run in interactive mode
+			-t, --tty             Allocate a pseudo-TTY
 			--name string         Container name
 			--hostname string     Container hostname
 			-m, --memory string   Memory limit (e.g., 512m, 1g)
@@ -59,6 +63,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 
 			Examples:
 			gockerize run alpine:latest
+			gockerize run -it alpine:latest /bin/sh
 			gockerize run -d -p 8080:80 --name web nginx:latest
 			gockerize run -v /tmp:/data -e "KEY=value" ubuntu:latest /bin/bash
 	`)
@@ -82,10 +87,12 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 
 	// Build container configuration
 	config := &types.ContainerConfig{
-		Command:    command,   // Set the command in config
-		RootFS:     imageName, // For now, image name is the rootfs
-		WorkingDir: *workdir,
-		Hostname:   *hostname,
+		Command:     command,       // Set the command in config
+		RootFS:      imageName,     // For now, image name is the rootfs
+		WorkingDir:  *workdir,
+		Hostname:    *hostname,
+		Interactive: *interactive,
+		TTY:         *tty,
 	}
 
 	// Parse memory limit
@@ -139,18 +146,34 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 	if *detach {
 		fmt.Println(container.ID)
 	} else {
-		fmt.Printf("Container %s started\n", container.ID[:12])
-		// Wait for container to exit
-		exitCode, err := h.runtime.WaitContainer(ctx, container.ID)
-		if err != nil {
-			// If context was cancelled, that's expected behavior
-			if ctx.Err() != nil {
-				return nil
+		if config.Interactive {
+			// In interactive mode, don't print container started message
+			// Just wait for the container to exit
+			exitCode, err := h.runtime.WaitContainer(ctx, container.ID)
+			if err != nil {
+				// If context was cancelled, that's expected behavior
+				if ctx.Err() != nil {
+					return nil
+				}
+				return fmt.Errorf("failed to wait for container: %w", err)
 			}
-			return fmt.Errorf("failed to wait for container: %w", err)
-		}
-		if exitCode != 0 && exitCode != -128 { // -128 indicates killed by signal
-			return fmt.Errorf("container exited with code %d", exitCode)
+			if exitCode != 0 && exitCode != -128 { // -128 indicates killed by signal
+				return fmt.Errorf("container exited with code %d", exitCode)
+			}
+		} else {
+			fmt.Printf("Container %s started\n", container.ID[:12])
+			// Wait for container to exit
+			exitCode, err := h.runtime.WaitContainer(ctx, container.ID)
+			if err != nil {
+				// If context was cancelled, that's expected behavior
+				if ctx.Err() != nil {
+					return nil
+				}
+				return fmt.Errorf("failed to wait for container: %w", err)
+			}
+			if exitCode != 0 && exitCode != -128 { // -128 indicates killed by signal
+				return fmt.Errorf("container exited with code %d", exitCode)
+			}
 		}
 	}
 

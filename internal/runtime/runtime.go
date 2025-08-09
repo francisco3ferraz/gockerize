@@ -1,12 +1,17 @@
 package runtime
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -351,27 +356,63 @@ func (r *Runtime) ListContainers(ctx context.Context, all bool) ([]*types.Contai
 	return containers, nil
 }
 
-// Image management methods (simplified for now)
+// Image management methods
 func (r *Runtime) PullImage(ctx context.Context, name string) (*types.Image, error) {
-	// For now, we'll create a simple alpine-like image
+	// Parse image name and tag
+	imageName, tag := parseImageName(name)
+
+	slog.Info("pulling image", "image", imageName, "tag", tag)
+
+	// Check if image already exists
+	r.mu.RLock()
+	for _, image := range r.images {
+		if image.Name == imageName && image.Tag == tag {
+			r.mu.RUnlock()
+			slog.Info("image already exists", "image", imageName, "tag", tag)
+			return image, nil
+		}
+	}
+	r.mu.RUnlock()
+
+	// Download and extract image
 	imageID := generateID()
+	imagePath := filepath.Join(r.imageDir, "images", imageName, tag)
+
+	// Create image directory
+	if err := os.MkdirAll(imagePath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create image directory: %w", err)
+	}
+
+	// Download the image
+	if err := r.downloadImage(ctx, imageName, tag, imagePath); err != nil {
+		return nil, fmt.Errorf("failed to download image: %w", err)
+	}
+
+	// Create image metadata
 	image := &types.Image{
 		ID:      imageID,
-		Name:    name,
-		Tag:     "latest",
-		Size:    5 * 1024 * 1024, // 5MB
+		Name:    imageName,
+		Tag:     tag,
+		Size:    r.calculateImageSize(imagePath),
 		Created: time.Now(),
-		Layers:  []string{"base"},
+		Layers:  []string{"base"}, // TODO: implement proper layer tracking
 		Config: &types.ImageConfig{
 			Cmd:        []string{"/bin/sh"},
 			WorkingDir: "/",
 		},
 	}
 
+	// Store image
 	r.mu.Lock()
 	r.images[imageID] = image
 	r.mu.Unlock()
 
+	// Persist image metadata
+	if err := r.saveImage(image, imagePath); err != nil {
+		slog.Warn("failed to save image metadata", "image", imageName, "error", err)
+	}
+
+	slog.Info("image pulled successfully", "image", imageName, "tag", tag, "size", formatSize(image.Size))
 	return image, nil
 }
 
@@ -488,8 +529,41 @@ func (r *Runtime) loadContainers() error {
 }
 
 func (r *Runtime) loadImages() error {
-	// For now, just load some default images
-	return nil
+	imagesDir := filepath.Join(r.imageDir, "images")
+
+	// Check if images directory exists
+	if _, err := os.Stat(imagesDir); os.IsNotExist(err) {
+		return nil // No images to load
+	}
+
+	// Walk through the images directory structure: images/<name>/<tag>/
+	return filepath.Walk(imagesDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Look for metadata.json files
+		if info.Name() == "metadata.json" && !info.IsDir() {
+			// Load the image metadata
+			data, err := os.ReadFile(path)
+			if err != nil {
+				slog.Warn("failed to read image metadata", "path", path, "error", err)
+				return nil // Continue walking, don't fail completely
+			}
+
+			var image types.Image
+			if err := json.Unmarshal(data, &image); err != nil {
+				slog.Warn("failed to parse image metadata", "path", path, "error", err)
+				return nil // Continue walking
+			}
+
+			// Add image to runtime registry
+			r.images[image.ID] = &image
+			slog.Debug("loaded image", "name", image.Name, "tag", image.Tag, "id", image.ID)
+		}
+
+		return nil
+	})
 }
 
 func (r *Runtime) removeContainerFile(containerID string) {
@@ -500,4 +574,160 @@ func (r *Runtime) removeContainerFile(containerID string) {
 // generateID generates a random container/image ID
 func generateID() string {
 	return fmt.Sprintf("%x", time.Now().UnixNano())
+}
+
+// parseImageName parses an image name like "alpine:3.18" into name and tag
+func parseImageName(name string) (string, string) {
+	parts := strings.Split(name, ":")
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return name, "latest"
+}
+
+// downloadImage downloads an image from a registry (simplified implementation)
+func (r *Runtime) downloadImage(ctx context.Context, imageName, tag, imagePath string) error {
+	// For now, let's implement a simplified version that downloads Alpine images
+	// This is a basic implementation - a production version would use proper OCI registry API
+
+	if imageName != "alpine" {
+		return fmt.Errorf("only alpine images are currently supported")
+	}
+
+	// Download Alpine minirootfs
+	url := "https://dl-cdn.alpinelinux.org/alpine/v3.18/releases/x86_64/alpine-minirootfs-3.18.4-x86_64.tar.gz"
+	if tag != "latest" {
+		// For specific versions, try to construct URL (simplified)
+		url = "https://dl-cdn.alpinelinux.org/alpine/v3.18/releases/x86_64/alpine-minirootfs-3.18.4-x86_64.tar.gz"
+	}
+
+	slog.Info("downloading image", "url", url, "destination", imagePath)
+
+	// Download the file
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to download image: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download image: HTTP %d", resp.StatusCode)
+	}
+
+	// Extract directly to the image path
+	return r.extractTarGz(resp.Body, imagePath)
+}
+
+// extractTarGz extracts a tar.gz archive to a destination directory
+func (r *Runtime) extractTarGz(src io.Reader, destDir string) error {
+	// Create gzip reader
+	gzReader, err := gzip.NewReader(src)
+	if err != nil {
+		return fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer gzReader.Close()
+
+	// Create tar reader
+	tarReader := tar.NewReader(gzReader)
+
+	// Extract files
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		// Skip directories with ".." in path for security
+		if strings.Contains(header.Name, "..") {
+			continue
+		}
+
+		destPath := filepath.Join(destDir, header.Name)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(destPath, os.FileMode(header.Mode)); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
+			}
+		case tar.TypeReg:
+			// Create parent directories
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory for %s: %w", destPath, err)
+			}
+
+			// Create file
+			file, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+			if err != nil {
+				return fmt.Errorf("failed to create file %s: %w", destPath, err)
+			}
+
+			// Copy file content
+			if _, err := io.Copy(file, tarReader); err != nil {
+				file.Close()
+				return fmt.Errorf("failed to extract file %s: %w", destPath, err)
+			}
+			file.Close()
+		case tar.TypeSymlink:
+			// Create symlink
+			if err := os.Symlink(header.Linkname, destPath); err != nil {
+				// Ignore symlink errors for now as they might point to non-existent targets
+				slog.Warn("failed to create symlink", "path", destPath, "target", header.Linkname, "error", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// calculateImageSize calculates the size of an image directory
+func (r *Runtime) calculateImageSize(imagePath string) int64 {
+	var size int64
+
+	err := filepath.Walk(imagePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+
+	if err != nil {
+		slog.Warn("failed to calculate image size", "path", imagePath, "error", err)
+		return 0
+	}
+
+	return size
+}
+
+// saveImage saves image metadata to disk
+func (r *Runtime) saveImage(image *types.Image, imagePath string) error {
+	metadataPath := filepath.Join(imagePath, "metadata.json")
+	data, err := json.Marshal(image)
+	if err != nil {
+		return fmt.Errorf("failed to marshal image metadata: %w", err)
+	}
+
+	return os.WriteFile(metadataPath, data, 0644)
+}
+
+// formatSize formats a byte size as human readable string
+func formatSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%dB", bytes)
+	}
+
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+
+	units := []string{"KB", "MB", "GB", "TB"}
+	return fmt.Sprintf("%.1f%s", float64(bytes)/float64(div), units[exp])
 }

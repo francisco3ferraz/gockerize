@@ -26,6 +26,7 @@ ps      List running containers
 stop    Stop a container
 rm      Remove a container
 attach  Attach to a running container
+pull    Pull an image from a registry
 images  List available images
 version Show version information
 
@@ -40,6 +41,7 @@ gockerize stop container_id
 gockerize rm container_id
 gockerize rm -a  # Remove all containers
 gockerize attach container_id
+gockerize pull alpine:latest
 gockerize images
 gockerize version
 `
@@ -135,6 +137,8 @@ func routeCommand(ctx context.Context, cli *cli.Handler, command string, args []
 		return cli.Remove(ctx, args)
 	case "attach":
 		return cli.Attach(ctx, args)
+	case "pull":
+		return cli.Pull(ctx, args)
 	case "images":
 		return cli.Images(ctx, args)
 	case "version":

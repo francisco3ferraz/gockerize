@@ -587,3 +587,22 @@ func formatSize(bytes int64) string {
 	units := []string{"KB", "MB", "GB", "TB"}
 	return fmt.Sprintf("%.1f%s", float64(bytes)/float64(div), units[exp])
 }
+
+// Pull handles the 'pull' command
+func (h *Handler) Pull(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("image name required")
+	}
+
+	imageName := args[0]
+	fmt.Printf("Pulling image: %s\n", imageName)
+
+	// Use the runtime's PullImage method
+	image, err := h.runtime.PullImage(ctx, imageName)
+	if err != nil {
+		return fmt.Errorf("failed to pull image: %w", err)
+	}
+
+	fmt.Printf("Successfully pulled %s (%s)\n", image.Name, formatSize(image.Size))
+	return nil
+}

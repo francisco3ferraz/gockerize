@@ -17,29 +17,32 @@ const (
 	version = "0.1.0"
 	usage   = `gockerize - A lightweight container runtime
 
-				Usage:
-				gockerize <command> [options]
+Usage:
+gockerize <command> [options]
 
-				Commands:
-				run     Run a new container
-				ps      List running containers
-				stop    Stop a container
-				rm      Remove a container
-				images  List available images
-				version Show version information
+Commands:
+run     Run a new container
+ps      List running containers
+stop    Stop a container
+rm      Remove a container
+attach  Attach to a running container
+images  List available images
+version Show version information
 
-				Global Options:
-				-v, --verbose    Enable verbose logging
-				-h, --help       Show help
+Global Options:
+-v, --verbose    Enable verbose logging
+-h, --help       Show help
 
-				Examples:
-				gockerize run alpine:latest /bin/sh
-				gockerize ps
-				gockerize stop container_id
-				gockerize rm container_id
-				gockerize images
-				gockerize version
-				`
+Examples:
+gockerize run alpine:latest /bin/sh
+gockerize ps
+gockerize stop container_id
+gockerize rm container_id
+gockerize rm -a  # Remove all containers
+gockerize attach container_id
+gockerize images
+gockerize version
+`
 )
 
 func main() {
@@ -130,6 +133,8 @@ func routeCommand(ctx context.Context, cli *cli.Handler, command string, args []
 		return cli.Stop(ctx, args)
 	case "rm":
 		return cli.Remove(ctx, args)
+	case "attach":
+		return cli.Attach(ctx, args)
 	case "images":
 		return cli.Images(ctx, args)
 	case "version":

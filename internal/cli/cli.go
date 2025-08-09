@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -87,8 +88,8 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 
 	// Build container configuration
 	config := &types.ContainerConfig{
-		Command:     command,       // Set the command in config
-		RootFS:      imageName,     // For now, image name is the rootfs
+		Command:     command,   // Set the command in config
+		RootFS:      imageName, // For now, image name is the rootfs
 		WorkingDir:  *workdir,
 		Hostname:    *hostname,
 		Interactive: *interactive,
@@ -295,6 +296,7 @@ func (h *Handler) Remove(ctx context.Context, args []string) error {
 	// Parse rm command flags
 	rmFlags := flag.NewFlagSet("rm", flag.ExitOnError)
 	force := rmFlags.Bool("f", false, "force removal of running container")
+	all := rmFlags.Bool("a", false, "remove all containers")
 
 	rmFlags.Usage = func() {
 		fmt.Fprintf(os.Stderr, `Usage: gockerize rm [OPTIONS] CONTAINER [CONTAINER...]
@@ -303,6 +305,7 @@ Remove one or more containers
 
 Options:
   -f, --force    Force removal of running container
+  -a, --all      Remove all containers
 `)
 	}
 
@@ -311,7 +314,24 @@ Options:
 	}
 
 	containerIDs := rmFlags.Args()
-	if len(containerIDs) == 0 {
+
+	// If --all flag is used, get all container IDs
+	if *all {
+		containers, err := h.runtime.ListContainers(ctx, true) // true = include all containers (running + stopped)
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
+
+		if len(containers) == 0 {
+			fmt.Println("No containers to remove")
+			return nil
+		}
+
+		containerIDs = make([]string, len(containers))
+		for i, container := range containers {
+			containerIDs[i] = container.ID
+		}
+	} else if len(containerIDs) == 0 {
 		rmFlags.Usage()
 		return fmt.Errorf("container ID required")
 	}
@@ -496,6 +516,47 @@ func parseVolumes(volumes string) ([]types.Volume, error) {
 	}
 
 	return volumeMounts, nil
+}
+
+// Attach attaches to a running container
+func (h *Handler) Attach(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("container ID or name required")
+	}
+
+	containerID := args[0]
+
+	// Resolve container
+	container, err := h.resolveContainer(containerID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve container: %w", err)
+	}
+
+	if container.State != types.StateRunning {
+		return fmt.Errorf("container %s is not running (state: %s)", container.ID[:12], container.State)
+	}
+
+	// Get the container PID
+	if container.PID <= 0 {
+		return fmt.Errorf("container %s has invalid PID", container.ID[:12])
+	}
+
+	fmt.Printf("Attaching to container %s...\n", container.ID[:12])
+	fmt.Printf("Use Ctrl+P, Ctrl+Q to detach without stopping the container\n")
+
+	// Create a new bash process in the container's namespace
+	return h.attachToContainer(container)
+}
+
+func (h *Handler) attachToContainer(container *types.Container) error {
+	// Use nsenter to enter the container's namespace and spawn a new shell
+	pid := container.PID
+
+	// Create nsenter command to join the container's namespaces
+	cmd := fmt.Sprintf("nsenter -t %d -p -m -n /bin/sh", pid)
+
+	// Execute the command in the current terminal
+	return syscall.Exec("/bin/sh", []string{"/bin/sh", "-c", cmd}, os.Environ())
 }
 
 func formatDuration(d time.Duration) string {

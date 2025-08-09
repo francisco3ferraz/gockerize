@@ -89,7 +89,7 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		// Connect stdin for interactive mode
 		cmd.Stdin = os.Stdin
 	}
-	
+
 	// Connect container's stdout/stderr to parent's stdout/stderr
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

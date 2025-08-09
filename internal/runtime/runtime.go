@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/francisco3ferraz/gockerize/internal/container"
@@ -91,6 +92,18 @@ func New() (*Runtime, error) {
 
 	slog.Info("runtime initialized", "runtime_dir", rt.runtimeDir)
 	return rt, nil
+}
+
+// isProcessRunning checks if a process with the given PID is still running
+func (r *Runtime) isProcessRunning(pid int) bool {
+	// Check if the process exists by sending signal 0
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+
+	err = process.Signal(syscall.Signal(0))
+	return err == nil
 }
 
 // CreateContainer creates a new container
@@ -379,16 +392,10 @@ func (r *Runtime) RemoveImage(ctx context.Context, imageID string, force bool) e
 func (r *Runtime) Cleanup() error {
 	slog.Info("cleaning up runtime")
 
-	// Stop all running containers
-	for _, container := range r.containers {
-		if container.State == types.StateRunning {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := r.StopContainer(ctx, container.ID, 10*time.Second); err != nil {
-				slog.Warn("failed to stop container during cleanup", "container", container.ID, "error", err)
-			}
-			cancel()
-		}
-	}
+	// For now, don't stop any containers during cleanup to avoid killing
+	// existing running containers. This is safer for interactive sessions.
+	// TODO: Implement proper session tracking
+	slog.Debug("skipping container cleanup to preserve running containers")
 
 	return nil
 }

@@ -8,11 +8,20 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // ContainerInit is called when the main binary is executed with "container-init"
 // This runs inside the container's namespaces and sets up the container environment
 func ContainerInit() error {
+	// Write debug info to a file since logging might not work in namespace
+	debugFile := "/tmp/container-init-debug.log"
+	f, err := os.OpenFile(debugFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		defer f.Close()
+		f.WriteString(fmt.Sprintf("container-init started at %v\n", time.Now()))
+	}
+
 	slog.Info("initializing container environment")
 
 	// Get container configuration from environment
@@ -21,6 +30,11 @@ func ContainerInit() error {
 	cmdStr := os.Getenv("CONTAINER_CMD")
 	hostname := os.Getenv("CONTAINER_HOSTNAME")
 
+	if f != nil {
+		f.WriteString(fmt.Sprintf("env vars: ID=%s, rootfs=%s, cmd=%s, hostname=%s\n",
+			containerID, rootfs, cmdStr, hostname))
+	}
+
 	slog.Debug("container init environment",
 		"id", containerID,
 		"rootfs", rootfs,
@@ -28,6 +42,9 @@ func ContainerInit() error {
 		"hostname", hostname)
 
 	if containerID == "" || rootfs == "" {
+		if f != nil {
+			f.WriteString("ERROR: missing required environment variables\n")
+		}
 		return fmt.Errorf("missing required container environment variables")
 	}
 
@@ -35,18 +52,33 @@ func ContainerInit() error {
 	if hostname != "" {
 		if err := syscall.Sethostname([]byte(hostname)); err != nil {
 			slog.Warn("failed to set hostname", "hostname", hostname, "error", err)
+			if f != nil {
+				f.WriteString(fmt.Sprintf("hostname failed: %v\n", err))
+			}
 		}
 	}
 
+	if f != nil {
+		f.WriteString("about to setup filesystem\n")
+	}
 	slog.Debug("setting up filesystem")
 	// Setup filesystem isolation
 	if err := setupFilesystem(rootfs); err != nil {
+		if f != nil {
+			f.WriteString(fmt.Sprintf("filesystem setup failed: %v\n", err))
+		}
 		return fmt.Errorf("failed to setup filesystem: %w", err)
 	}
 
+	if f != nil {
+		f.WriteString("filesystem setup complete, about to setup mounts\n")
+	}
 	slog.Debug("setting up mounts")
 	// Setup essential mounts
 	if err := setupMounts(); err != nil {
+		if f != nil {
+			f.WriteString(fmt.Sprintf("mounts setup failed: %v\n", err))
+		}
 		return fmt.Errorf("failed to setup mounts: %w", err)
 	}
 
@@ -58,9 +90,10 @@ func ContainerInit() error {
 		cmd = []string{"/bin/sh"}
 	}
 
-	slog.Debug("about to execute command", "cmd", cmd)
-
-	// Execute the container command
+	if f != nil {
+		f.WriteString(fmt.Sprintf("about to execute command: %v\n", cmd))
+	}
+	slog.Debug("about to execute command", "cmd", cmd) // Execute the container command
 	return execContainerCommand(cmd)
 }
 
@@ -218,20 +251,29 @@ func execContainerCommand(cmd []string) error {
 		return fmt.Errorf("no command specified")
 	}
 
-	// Look for the command in PATH
-	cmdPath, err := exec.LookPath(cmd[0])
-	if err != nil {
-		// If not found in PATH, try to execute directly
-		slog.Debug("command not found in PATH, trying direct execution", "cmd", cmd[0], "error", err)
+	// For debugging, try to use absolute path for common commands
+	var cmdPath string
+	switch cmd[0] {
+	case "echo":
+		cmdPath = "/bin/echo"
+	case "sh":
+		cmdPath = "/bin/sh"
+	case "bash":
+		cmdPath = "/bin/bash"
+	default:
 		cmdPath = cmd[0]
-	} else {
-		slog.Debug("command found in PATH", "cmd", cmd[0], "path", cmdPath)
 	}
 
 	// Check if the command file exists and is executable
 	if stat, err := os.Stat(cmdPath); err != nil {
 		slog.Error("command file does not exist", "path", cmdPath, "error", err)
-		return fmt.Errorf("command file does not exist: %s (%w)", cmdPath, err)
+		// Try to look in PATH as fallback
+		if pathCmd, pathErr := exec.LookPath(cmd[0]); pathErr == nil {
+			cmdPath = pathCmd
+			slog.Debug("command found in PATH", "cmd", cmd[0], "path", cmdPath)
+		} else {
+			return fmt.Errorf("command file does not exist: %s (%w)", cmdPath, err)
+		}
 	} else {
 		slog.Debug("command file found", "path", cmdPath, "mode", stat.Mode())
 	}
@@ -239,10 +281,14 @@ func execContainerCommand(cmd []string) error {
 	// Prepare arguments (including argv[0])
 	args := cmd
 
-	// Prepare environment
-	env := os.Environ()
+	// Prepare environment - for debugging, let's simplify the environment
+	env := []string{
+		"PATH=/bin:/usr/bin:/sbin:/usr/sbin",
+		"HOME=/root",
+		"TERM=xterm",
+	}
 
-	slog.Info("about to exec", "path", cmdPath, "args", args)
+	slog.Info("about to exec", "path", cmdPath, "args", args, "env", env)
 
 	// Replace current process with container command
 	return syscall.Exec(cmdPath, args, env)

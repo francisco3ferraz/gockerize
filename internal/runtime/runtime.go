@@ -161,31 +161,25 @@ func (r *Runtime) StartContainer(ctx context.Context, containerID string) error 
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
-	// TODO: Temporarily disable network setup for debugging
-	/*
-		// Setup networking after container is started (so we have the PID)
-		if err := r.networkMgr.SetupNetwork(ctx, container); err != nil {
-			// Cleanup container on network failure
-			r.containerMgr.Stop(ctx, container, 5*time.Second)
-			return fmt.Errorf("failed to setup network: %w", err)
-		}
-	*/
+	// Setup networking after container is started (so we have the PID)
+	if err := r.networkMgr.SetupNetwork(ctx, container); err != nil {
+		// Cleanup container on network failure
+		r.containerMgr.Stop(ctx, container, 5*time.Second)
+		return fmt.Errorf("failed to setup network: %w", err)
+	}
 
 	// Update container state
 	now := time.Now()
 	container.State = types.StateRunning
 	container.StartedAt = &now
 
-	// TODO: Temporarily disable network info for debugging
-	/*
-		// Get network info
-		networkInfo, err := r.networkMgr.GetNetworkInfo(container)
-		if err != nil {
-			slog.Warn("failed to get network info", "container", container.ID, "error", err)
-		} else {
-			container.NetworkInfo = networkInfo
-		}
-	*/
+	// Get network info
+	networkInfo, err := r.networkMgr.GetNetworkInfo(container)
+	if err != nil {
+		slog.Warn("failed to get network info", "container", container.ID, "error", err)
+	} else {
+		container.NetworkInfo = networkInfo
+	}
 
 	// Persist state
 	if err := r.saveContainer(container); err != nil {

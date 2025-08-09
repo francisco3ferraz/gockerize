@@ -66,24 +66,23 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWNS | // Mount namespace
 			syscall.CLONE_NEWPID | // PID namespace
-			syscall.CLONE_NEWUTS, // UTS namespace (hostname)
-		// Remove user namespaces for now to simplify debugging
-		/*
-			UidMappings: []syscall.SysProcIDMap{
-				{
-					ContainerID: 0,
-					HostID:      os.Getuid(),
-					Size:        1,
-				},
+			syscall.CLONE_NEWNET | // Network namespace
+			syscall.CLONE_NEWUTS | // UTS namespace (hostname)
+			syscall.CLONE_NEWIPC, // IPC namespace
+		UidMappings: []syscall.SysProcIDMap{
+			{
+				ContainerID: 0,
+				HostID:      os.Getuid(),
+				Size:        1,
 			},
-			GidMappings: []syscall.SysProcIDMap{
-				{
-					ContainerID: 0,
-					HostID:      os.Getgid(),
-					Size:        1,
-				},
+		},
+		GidMappings: []syscall.SysProcIDMap{
+			{
+				ContainerID: 0,
+				HostID:      os.Getgid(),
+				Size:        1,
 			},
-		*/
+		},
 	}
 
 	// Set environment variables for container init

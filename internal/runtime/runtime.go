@@ -38,6 +38,11 @@ type Runtime struct {
 	networkMgr   types.NetworkManager
 	storageMgr   types.StorageManager
 
+	// Session tracking
+	sessionID         string
+	sessionStartTime  time.Time
+	sessionContainers map[string]bool // Track containers started by this session
+
 	// Configuration
 	runtimeDir   string
 	imageDir     string
@@ -48,12 +53,15 @@ type Runtime struct {
 // New creates a new runtime instance
 func New() (*Runtime, error) {
 	rt := &Runtime{
-		containers:   make(map[string]*types.Container),
-		images:       make(map[string]*types.Image),
-		runtimeDir:   DefaultRuntimeDir,
-		imageDir:     DefaultImageDir,
-		containerDir: DefaultContainerDir,
-		networkDir:   DefaultNetworkDir,
+		containers:        make(map[string]*types.Container),
+		images:            make(map[string]*types.Image),
+		sessionID:         generateID(),
+		sessionStartTime:  time.Now(),
+		sessionContainers: make(map[string]bool),
+		runtimeDir:        DefaultRuntimeDir,
+		imageDir:          DefaultImageDir,
+		containerDir:      DefaultContainerDir,
+		networkDir:        DefaultNetworkDir,
 	}
 
 	// Create runtime directories
@@ -186,6 +194,9 @@ func (r *Runtime) StartContainer(ctx context.Context, containerID string) error 
 		slog.Warn("failed to signal network ready", "container", container.ID, "error", err)
 	}
 
+	// Track that this container was started by this session
+	r.sessionContainers[container.ID] = true
+
 	// Update container state
 	now := time.Now()
 	container.State = types.StateRunning
@@ -281,6 +292,7 @@ func (r *Runtime) RemoveContainer(ctx context.Context, containerID string, force
 
 	// Remove from memory and disk
 	delete(r.containers, containerID)
+	delete(r.sessionContainers, containerID) // Clean up session tracking
 	r.removeContainerFile(containerID)
 
 	slog.Info("container removed", "id", container.ID, "name", container.Name)
@@ -390,12 +402,35 @@ func (r *Runtime) RemoveImage(ctx context.Context, imageID string, force bool) e
 
 // Cleanup releases runtime resources
 func (r *Runtime) Cleanup() error {
-	slog.Info("cleaning up runtime")
+	slog.Info("cleaning up runtime", "session_id", r.sessionID[:8])
 
-	// For now, don't stop any containers during cleanup to avoid killing
-	// existing running containers. This is safer for interactive sessions.
-	// TODO: Implement proper session tracking
-	slog.Debug("skipping container cleanup to preserve running containers")
+	// Only stop containers that were started by this runtime session
+	r.mu.Lock()
+	containersToStop := make([]*types.Container, 0)
+	for containerID, wasStartedBySession := range r.sessionContainers {
+		if wasStartedBySession {
+			if container, exists := r.containers[containerID]; exists && container.State == types.StateRunning {
+				containersToStop = append(containersToStop, container)
+			}
+		}
+	}
+	r.mu.Unlock()
+
+	// Stop containers started by this session
+	for _, container := range containersToStop {
+		slog.Info("stopping container started by this session", "container", container.ID[:12])
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := r.StopContainer(ctx, container.ID, 10*time.Second); err != nil {
+			slog.Warn("failed to stop container during cleanup", "container", container.ID, "error", err)
+		}
+		cancel()
+	}
+
+	if len(containersToStop) > 0 {
+		slog.Info("stopped containers from session", "count", len(containersToStop), "session_id", r.sessionID[:8])
+	} else {
+		slog.Debug("no containers to stop from this session")
+	}
 
 	return nil
 }

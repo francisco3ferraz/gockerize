@@ -168,6 +168,11 @@ func (r *Runtime) StartContainer(ctx context.Context, containerID string) error 
 		return fmt.Errorf("failed to setup network: %w", err)
 	}
 
+	// Signal the container that network setup is complete
+	if err := r.containerMgr.SignalNetworkReady(ctx, container); err != nil {
+		slog.Warn("failed to signal network ready", "container", container.ID, "error", err)
+	}
+
 	// Update container state
 	now := time.Now()
 	container.State = types.StateRunning

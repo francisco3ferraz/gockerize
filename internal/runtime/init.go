@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"syscall"
 	"time"
@@ -89,6 +90,33 @@ func ContainerInit() error {
 		cmd = []string{"/bin/sh"}
 	}
 
+	// Wait for network setup completion signal from parent
+	// Check if we need to wait for network setup
+	if os.Getenv("WAIT_FOR_NETWORK") == "true" {
+		if f != nil {
+			f.WriteString("waiting for network setup signal\n")
+		}
+		slog.Info("waiting for network setup signal")
+
+		// Wait for SIGUSR1 signal from parent indicating network is ready
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGUSR1)
+
+		// Wait for signal or timeout after 10 seconds
+		select {
+		case <-sigChan:
+			slog.Info("received network setup signal, proceeding")
+			if f != nil {
+				f.WriteString("received network setup signal\n")
+			}
+		case <-time.After(10 * time.Second):
+			slog.Warn("timeout waiting for network setup signal, proceeding anyway")
+			if f != nil {
+				f.WriteString("timeout waiting for network signal\n")
+			}
+		}
+	}
+
 	if f != nil {
 		f.WriteString(fmt.Sprintf("about to execute command: %v\n", cmd))
 	}
@@ -96,7 +124,7 @@ func ContainerInit() error {
 	return execContainerCommand(cmd)
 }
 
-//setupFilesystem sets up the container's filesystem using chroot
+// setupFilesystem sets up the container's filesystem using chroot
 func setupFilesystem(rootfs string) error {
 	// Ensure rootfs exists
 	if _, err := os.Stat(rootfs); os.IsNotExist(err) {

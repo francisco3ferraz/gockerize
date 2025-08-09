@@ -62,9 +62,9 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	// Prepare the container process
 	cmd := exec.CommandContext(ctx, "/proc/self/exe", "container-init")
 
-	// Set up namespaces - testing mount namespace only
+	// Set up namespaces - mount and network namespaces
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWNS, // Mount namespace only
+		Cloneflags: syscall.CLONE_NEWNS | syscall.CLONE_NEWNET, // Mount and network namespaces
 	}
 
 	// Set environment variables for container init
@@ -73,6 +73,7 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		fmt.Sprintf("CONTAINER_ROOTFS=%s", container.Config.RootFS),
 		fmt.Sprintf("CONTAINER_CMD=%s", strings.Join(container.Command, " ")),
 		fmt.Sprintf("CONTAINER_HOSTNAME=%s", container.Config.Hostname),
+		"WAIT_FOR_NETWORK=true", // Signal that container should wait for network setup
 	}
 
 	// Add user-defined environment variables
@@ -118,6 +119,27 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		"name", container.Name,
 		"pid", container.PID)
 
+	return nil
+}
+
+// SignalNetworkReady sends SIGUSR1 to the container to signal network is ready
+func (m *Manager) SignalNetworkReady(ctx context.Context, container *types.Container) error {
+	if container.PID == 0 {
+		return fmt.Errorf("container has no PID: %s", container.ID)
+	}
+
+	// Find the process
+	process, err := os.FindProcess(container.PID)
+	if err != nil {
+		return fmt.Errorf("failed to find process %d: %w", container.PID, err)
+	}
+
+	// Send SIGUSR1 to signal network is ready
+	if err := process.Signal(syscall.SIGUSR1); err != nil {
+		return fmt.Errorf("failed to send network ready signal: %w", err)
+	}
+
+	slog.Info("sent network ready signal to container", "id", container.ID, "pid", container.PID)
 	return nil
 }
 

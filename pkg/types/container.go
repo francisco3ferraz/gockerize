@@ -134,6 +134,7 @@ type ContainerManager interface {
 	Stop(ctx context.Context, container *Container, timeout time.Duration) error
 	Remove(ctx context.Context, container *Container, force bool) error
 	Wait(ctx context.Context, container *Container) (int, error)
+	SignalNetworkReady(ctx context.Context, container *Container) error
 }
 
 // NetworkManager handles container networking

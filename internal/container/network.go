@@ -51,11 +51,45 @@ func (nm *NetworkManager) SetupNetwork(ctx context.Context, container *types.Con
 
 	slog.Info("setting up network for container", "id", container.ID, "pid", container.PID)
 
-	// Check if container is in its own network namespace
-	// Since we're using simplified containers without network namespaces,
-	// we'll assign an IP but not create veth pairs
+	// Generate unique veth pair names
+	vethHost := fmt.Sprintf("veth%s", container.ID[:8])
+	vethGuest := fmt.Sprintf("vethg%s", container.ID[:7])
+
+	// Create veth pair
+	if err := nm.createVethPair(vethHost, vethGuest); err != nil {
+		return fmt.Errorf("failed to create veth pair: %w", err)
+	}
+
+	// Attach host veth to bridge
+	if err := nm.attachToBridge(vethHost); err != nil {
+		nm.deleteVethPair(vethHost) // Cleanup on failure
+		return fmt.Errorf("failed to attach to bridge: %w", err)
+	}
+
+	// Bring up host veth
+	if err := nm.linkUp(vethHost); err != nil {
+		nm.deleteVethPair(vethHost)
+		return fmt.Errorf("failed to bring up host veth: %w", err)
+	}
+
+	// Move guest veth to container network namespace
+	if err := nm.moveToNetNS(vethGuest, container.PID); err != nil {
+		nm.deleteVethPair(vethHost)
+		return fmt.Errorf("failed to move veth to container netns: %w", err)
+	}
+
+	// Assign IP to container interface
 	containerIP := nm.getNextIP()
-	
+	if err := nm.configureContainerInterface(container.PID, vethGuest, containerIP); err != nil {
+		nm.deleteVethPair(vethHost)
+		return fmt.Errorf("failed to configure container interface: %w", err)
+	}
+
+	// Setup port forwarding if needed
+	if err := nm.setupPortForwarding(container, containerIP); err != nil {
+		slog.Warn("failed to setup port forwarding", "container", container.ID, "error", err)
+	}
+
 	// Store network info
 	container.NetworkInfo = &types.NetworkInfo{
 		IPAddress: containerIP,
@@ -64,14 +98,14 @@ func (nm *NetworkManager) SetupNetwork(ctx context.Context, container *types.Con
 		Ports:     make(map[string]string),
 	}
 
-	// Store port mappings if any
+	// Store port mappings
 	for _, port := range container.Config.Ports {
 		portKey := fmt.Sprintf("%d/%s", port.ContainerPort, port.Protocol)
 		portValue := fmt.Sprintf("%d", port.HostPort)
 		container.NetworkInfo.Ports[portKey] = portValue
 	}
 
-	slog.Info("network setup complete (simplified mode)",
+	slog.Info("network setup complete",
 		"container", container.ID,
 		"ip", containerIP,
 		"bridge", nm.bridgeName)
@@ -83,16 +117,13 @@ func (nm *NetworkManager) SetupNetwork(ctx context.Context, container *types.Con
 func (nm *NetworkManager) TeardownNetwork(ctx context.Context, container *types.Container) error {
 	slog.Info("tearing down network for container", "id", container.ID)
 
-	// Remove port forwarding rules
+	// In simplified mode, just remove port forwarding rules if any
 	if err := nm.removePortForwarding(container); err != nil {
 		slog.Warn("failed to remove port forwarding", "container", container.ID, "error", err)
 	}
 
-	// Delete veth pair (this also removes it from the bridge)
-	vethHost := fmt.Sprintf("veth%s", container.ID[:8])
-	if err := nm.deleteVethPair(vethHost); err != nil {
-		slog.Warn("failed to delete veth pair", "container", container.ID, "error", err)
-	}
+	// Clear network info
+	container.NetworkInfo = nil
 
 	return nil
 }
@@ -153,7 +184,16 @@ func (nm *NetworkManager) setupBridge() error {
 // createVethPair creates a veth pair
 func (nm *NetworkManager) createVethPair(vethHost, vethGuest string) error {
 	cmd := exec.Command("ip", "link", "add", vethHost, "type", "veth", "peer", "name", vethGuest)
-	return cmd.Run()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		slog.Error("failed to create veth pair",
+			"host", vethHost,
+			"guest", vethGuest,
+			"output", string(output),
+			"error", err)
+		return fmt.Errorf("veth pair creation failed: %s", string(output))
+	}
+	return nil
 }
 
 // deleteVethPair deletes a veth pair
@@ -177,7 +217,16 @@ func (nm *NetworkManager) linkUp(iface string) error {
 // moveToNetNS moves an interface to a network namespace
 func (nm *NetworkManager) moveToNetNS(iface string, pid int) error {
 	cmd := exec.Command("ip", "link", "set", iface, "netns", strconv.Itoa(pid))
-	return cmd.Run()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		slog.Error("failed to move interface to netns",
+			"interface", iface,
+			"pid", pid,
+			"output", string(output),
+			"error", err)
+		return fmt.Errorf("ip link set failed: %s", string(output))
+	}
+	return nil
 }
 
 // configureContainerInterface configures the network interface inside the container

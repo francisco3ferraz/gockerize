@@ -265,7 +265,7 @@ func (sm *StorageManager) copyEssentialBinaries(rootfsDir string) error {
 		if err := os.Chmod(destPath, 0755); err != nil {
 			continue
 		}
-		
+
 		// Copy dependencies for this binary
 		sm.copyBinaryDependencies(binPath, rootfsDir)
 	}
@@ -289,7 +289,7 @@ func (sm *StorageManager) copyBinaryDependencies(binPath, rootfsDir string) {
 			continue
 		}
 
-		// Parse ldd output: 
+		// Parse ldd output:
 		// libselinux.so.1 => /lib/x86_64-linux-gnu/libselinux.so.1 (0x...)
 		// or: /lib64/ld-linux-x86-64.so.2 (0x...)
 		var libPath string
@@ -312,7 +312,7 @@ func (sm *StorageManager) copyBinaryDependencies(binPath, rootfsDir string) {
 		if _, err := os.Stat(libPath); err == nil {
 			destPath := filepath.Join(rootfsDir, libPath)
 			destDir := filepath.Dir(destPath)
-			
+
 			if err := os.MkdirAll(destDir, 0755); err == nil {
 				sm.copyFile(libPath, destPath)
 			}

@@ -20,6 +20,50 @@ type Manager struct {
 	containerDir string
 }
 
+// getUserMappings returns appropriate UID/GID mappings for user namespace
+func (m *Manager) getUserMappings() ([]syscall.SysProcIDMap, []syscall.SysProcIDMap, error) {
+	// For now, let's use a simple mapping that should work
+	// Map container root (0) to the current effective user
+	currentUID := os.Geteuid()
+	currentGID := os.Getegid()
+
+	// If we're running as root, we can map to any user
+	// If not, we map to ourselves
+	hostUID := currentUID
+	hostGID := currentGID
+
+	// If running as root, map to an unprivileged user for better security
+	if currentUID == 0 {
+		hostUID = 1000
+		hostGID = 1000
+		slog.Info("running as root, mapping container root to unprivileged user", "host_uid", hostUID, "host_gid", hostGID)
+	} else {
+		slog.Info("running as non-root, mapping container root to current user", "host_uid", hostUID, "host_gid", hostGID)
+	}
+
+	uidMappings := []syscall.SysProcIDMap{
+		{
+			ContainerID: 0,       // Root in container
+			HostID:      hostUID, // Current user or 1000 if root
+			Size:        1,       // Map only one UID
+		},
+	}
+
+	gidMappings := []syscall.SysProcIDMap{
+		{
+			ContainerID: 0,       // Root group in container
+			HostID:      hostGID, // Current user's group or 1000 if root
+			Size:        1,       // Map only one GID
+		},
+	}
+
+	slog.Debug("user namespace mappings configured",
+		"container_uid", 0, "host_uid", hostUID,
+		"container_gid", 0, "host_gid", hostGID)
+
+	return uidMappings, gidMappings, nil
+}
+
 // NewManager creates a new container manager
 func NewManager(containerDir string) (*Manager, error) {
 	return &Manager{
@@ -61,9 +105,31 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	// Prepare the container process
 	cmd := exec.CommandContext(ctx, "/proc/self/exe", "container-init")
 
-	// Set up namespaces - mount and network namespaces
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWNS | syscall.CLONE_NEWNET, // Mount and network namespaces
+	// Set up namespaces - mount and network are always used
+	cloneFlags := uintptr(syscall.CLONE_NEWNS | syscall.CLONE_NEWNET)
+
+	// Conditionally add user namespace based on config
+	if container.Config.UserNamespace {
+		// Get user namespace mappings
+		uidMappings, gidMappings, err := m.getUserMappings()
+		if err != nil {
+			return fmt.Errorf("failed to configure user mappings: %w", err)
+		}
+
+		cloneFlags |= syscall.CLONE_NEWUSER
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Cloneflags:  cloneFlags,
+			UidMappings: uidMappings,
+			GidMappings: gidMappings,
+		}
+
+		slog.Info("container will use user namespace isolation", "container", container.ID)
+	} else {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Cloneflags: cloneFlags,
+		}
+
+		slog.Info("container will run without user namespace (traditional mode)", "container", container.ID)
 	}
 
 	// Set environment variables for container init

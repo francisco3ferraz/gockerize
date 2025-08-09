@@ -62,8 +62,9 @@ type ContainerConfig struct {
 	TTY         bool `json:"tty,omitempty"`
 
 	// Security
-	Privileged   bool     `json:"privileged,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
+	Privileged    bool     `json:"privileged,omitempty"`
+	UserNamespace bool     `json:"user_namespace,omitempty"`
+	Capabilities  []string `json:"capabilities,omitempty"`
 }
 
 // Volume represents a mounted volume

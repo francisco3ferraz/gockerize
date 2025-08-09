@@ -42,6 +42,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 		env         = runFlags.String("e", "", "environment variables (comma-separated key=value pairs)")
 		ports       = runFlags.String("p", "", "port mappings (e.g., 8080:80)")
 		volumes     = runFlags.String("v", "", "volume mounts (e.g., /host:/container)")
+		userNS      = runFlags.Bool("user-ns", false, "enable user namespace isolation (enhanced security)")
 	)
 
 	runFlags.Usage = func() {
@@ -61,12 +62,13 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 			-e, --env string      Environment variables (comma-separated key=value)
 			-p, --ports string    Port mappings (host:container)
 			-v, --volume string   Volume mounts (host:container)
+			--user-ns             Enable user namespace isolation (enhanced security)
 
 			Examples:
 			gockerize run alpine:latest
 			gockerize run -it alpine:latest /bin/sh
 			gockerize run -d -p 8080:80 --name web nginx:latest
-			gockerize run -v /tmp:/data -e "KEY=value" ubuntu:latest /bin/bash
+			gockerize run --user-ns -v /tmp:/data -e "KEY=value" ubuntu:latest /bin/bash
 	`)
 	}
 
@@ -88,12 +90,13 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 
 	// Build container configuration
 	config := &types.ContainerConfig{
-		Command:     command,   // Set the command in config
-		RootFS:      imageName, // For now, image name is the rootfs
-		WorkingDir:  *workdir,
-		Hostname:    *hostname,
-		Interactive: *interactive,
-		TTY:         *tty,
+		Command:       command,   // Set the command in config
+		RootFS:        imageName, // For now, image name is the rootfs
+		WorkingDir:    *workdir,
+		Hostname:      *hostname,
+		Interactive:   *interactive,
+		TTY:           *tty,
+		UserNamespace: *userNS, // Add user namespace option
 	}
 
 	// Parse memory limit

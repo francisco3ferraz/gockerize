@@ -102,8 +102,17 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		return fmt.Errorf("cannot start container in state: %s", container.State)
 	}
 
+	// For detached containers, use a background context so they don't get killed when CLI exits
+	// For interactive containers, use the provided context for proper cancellation
+	var cmdCtx context.Context
+	if container.Config.Interactive {
+		cmdCtx = ctx
+	} else {
+		cmdCtx = context.Background()
+	}
+
 	// Prepare the container process
-	cmd := exec.CommandContext(ctx, "/proc/self/exe", "container-init")
+	cmd := exec.CommandContext(cmdCtx, "/proc/self/exe", "container-init")
 
 	// Set up namespaces - mount, network, PID, UTS, and IPC are always used for security
 	cloneFlags := uintptr(syscall.CLONE_NEWNS | syscall.CLONE_NEWNET | syscall.CLONE_NEWPID | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC)

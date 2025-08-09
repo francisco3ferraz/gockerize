@@ -60,6 +60,7 @@ type ContainerConfig struct {
 	// Interactive/TTY
 	Interactive bool `json:"interactive,omitempty"`
 	TTY         bool `json:"tty,omitempty"`
+	Detached    bool `json:"detached,omitempty"`
 
 	// Security
 	Privileged    bool     `json:"privileged,omitempty"`

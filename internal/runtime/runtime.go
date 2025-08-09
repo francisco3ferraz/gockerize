@@ -198,7 +198,10 @@ func (r *Runtime) StartContainer(ctx context.Context, containerID string) error 
 	}
 
 	// Track that this container was started by this session
-	r.sessionContainers[container.ID] = true
+	// Skip tracking for detached containers so they don't get stopped during cleanup
+	if !container.Config.Detached {
+		r.sessionContainers[container.ID] = true
+	}
 
 	// Update container state
 	now := time.Now()

@@ -96,6 +96,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 		Hostname:      *hostname,
 		Interactive:   *interactive,
 		TTY:           *tty,
+		Detached:      *detach, // Add detached flag
 		UserNamespace: *userNS, // Add user namespace option
 	}
 

@@ -106,8 +106,8 @@ func (r *Runtime) CreateContainer(ctx context.Context, config *types.ContainerCo
 	container := &types.Container{
 		ID:        containerID,
 		Name:      containerName,
-		Image:     config.RootFS,       // For now, image name is the rootfs path
-		Command:   config.Command,      // Use command from config
+		Image:     config.RootFS,  // For now, image name is the rootfs path
+		Command:   config.Command, // Use command from config
 		State:     types.StateCreated,
 		CreatedAt: time.Now(),
 		Config:    config,

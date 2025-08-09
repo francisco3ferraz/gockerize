@@ -82,7 +82,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 
 	// Build container configuration
 	config := &types.ContainerConfig{
-		Command:    command,    // Set the command in config
+		Command:    command,   // Set the command in config
 		RootFS:     imageName, // For now, image name is the rootfs
 		WorkingDir: *workdir,
 		Hostname:   *hostname,

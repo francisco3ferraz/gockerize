@@ -142,7 +142,18 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 		fmt.Println(container.ID)
 	} else {
 		fmt.Printf("Container %s started\n", container.ID[:12])
-		// In a real implementation, you would attach to the container's stdio here
+		// Wait for container to exit
+		exitCode, err := h.runtime.WaitContainer(ctx, container.ID)
+		if err != nil {
+			// If context was cancelled, that's expected behavior
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("failed to wait for container: %w", err)
+		}
+		if exitCode != 0 && exitCode != -128 { // -128 indicates killed by signal
+			return fmt.Errorf("container exited with code %d", exitCode)
+		}
 	}
 
 	return nil

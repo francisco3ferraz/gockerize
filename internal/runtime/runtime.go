@@ -161,25 +161,31 @@ func (r *Runtime) StartContainer(ctx context.Context, containerID string) error 
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
-	// Setup networking after container is started (so we have the PID)
-	if err := r.networkMgr.SetupNetwork(ctx, container); err != nil {
-		// Cleanup container on network failure
-		r.containerMgr.Stop(ctx, container, 5*time.Second)
-		return fmt.Errorf("failed to setup network: %w", err)
-	}
+	// TODO: Temporarily disable network setup for debugging
+	/*
+		// Setup networking after container is started (so we have the PID)
+		if err := r.networkMgr.SetupNetwork(ctx, container); err != nil {
+			// Cleanup container on network failure
+			r.containerMgr.Stop(ctx, container, 5*time.Second)
+			return fmt.Errorf("failed to setup network: %w", err)
+		}
+	*/
 
 	// Update container state
 	now := time.Now()
 	container.State = types.StateRunning
 	container.StartedAt = &now
 
-	// Get network info
-	networkInfo, err := r.networkMgr.GetNetworkInfo(container)
-	if err != nil {
-		slog.Warn("failed to get network info", "container", container.ID, "error", err)
-	} else {
-		container.NetworkInfo = networkInfo
-	}
+	// TODO: Temporarily disable network info for debugging
+	/*
+		// Get network info
+		networkInfo, err := r.networkMgr.GetNetworkInfo(container)
+		if err != nil {
+			slog.Warn("failed to get network info", "container", container.ID, "error", err)
+		} else {
+			container.NetworkInfo = networkInfo
+		}
+	*/
 
 	// Persist state
 	if err := r.saveContainer(container); err != nil {
@@ -281,6 +287,35 @@ func (r *Runtime) GetContainer(containerID string) (*types.Container, error) {
 	}
 
 	return container, nil
+}
+
+// WaitContainer waits for a container to exit and returns the exit code
+func (r *Runtime) WaitContainer(ctx context.Context, containerID string) (int, error) {
+	container, err := r.GetContainer(containerID)
+	if err != nil {
+		return -1, err
+	}
+
+	// Wait for the container to exit
+	exitCode, err := r.containerMgr.Wait(ctx, container)
+	if err != nil {
+		return -1, fmt.Errorf("failed to wait for container: %w", err)
+	}
+
+	// Update container state
+	r.mu.Lock()
+	container.State = types.StateExited
+	container.ExitCode = exitCode
+	now := time.Now()
+	container.FinishedAt = &now
+	r.mu.Unlock()
+
+	// Persist state
+	if err := r.saveContainer(container); err != nil {
+		slog.Warn("failed to persist container state", "container", container.ID, "error", err)
+	}
+
+	return exitCode, nil
 }
 
 // ListContainers returns all containers

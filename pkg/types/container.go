@@ -109,6 +109,7 @@ type Runtime interface {
 	StartContainer(ctx context.Context, containerID string) error
 	StopContainer(ctx context.Context, containerID string, timeout time.Duration) error
 	RemoveContainer(ctx context.Context, containerID string, force bool) error
+	WaitContainer(ctx context.Context, containerID string) (int, error)
 
 	// Container queries
 	GetContainer(containerID string) (*Container, error)

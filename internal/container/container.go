@@ -66,23 +66,24 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWNS | // Mount namespace
 			syscall.CLONE_NEWPID | // PID namespace
-			syscall.CLONE_NEWNET | // Network namespace
-			syscall.CLONE_NEWUTS | // UTS namespace (hostname)
-			syscall.CLONE_NEWIPC, // IPC namespace
-		UidMappings: []syscall.SysProcIDMap{
-			{
-				ContainerID: 0,
-				HostID:      os.Getuid(),
-				Size:        1,
+			syscall.CLONE_NEWUTS, // UTS namespace (hostname)
+		// Remove user namespaces for now to simplify debugging
+		/*
+			UidMappings: []syscall.SysProcIDMap{
+				{
+					ContainerID: 0,
+					HostID:      os.Getuid(),
+					Size:        1,
+				},
 			},
-		},
-		GidMappings: []syscall.SysProcIDMap{
-			{
-				ContainerID: 0,
-				HostID:      os.Getgid(),
-				Size:        1,
+			GidMappings: []syscall.SysProcIDMap{
+				{
+					ContainerID: 0,
+					HostID:      os.Getgid(),
+					Size:        1,
+				},
 			},
-		},
+		*/
 	}
 
 	// Set environment variables for container init
@@ -93,6 +94,11 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		fmt.Sprintf("CONTAINER_HOSTNAME=%s", container.Config.Hostname),
 	}
 
+	slog.Debug("starting container process",
+		"container", container.ID,
+		"command", container.Command,
+		"rootfs", container.Config.RootFS)
+
 	// Add user-defined environment variables
 	cmd.Env = append(cmd.Env, container.Config.Env...)
 
@@ -102,15 +108,26 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	}
 
 	// Start the process
+	slog.Debug("about to start container process", "container", container.ID, "cmd", cmd.Args)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start container process: %w", err)
 	}
+
+	slog.Debug("container process started", "container", container.ID, "pid", cmd.Process.Pid)
 
 	// Update container with process info
 	container.PID = cmd.Process.Pid
 	container.State = types.StateRunning
 	now := time.Now()
 	container.StartedAt = &now
+
+	// Check if process is still alive immediately
+	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+		slog.Error("container process exited immediately",
+			"container", container.ID,
+			"exit_code", cmd.ProcessState.ExitCode())
+		return fmt.Errorf("container process exited immediately with code %d", cmd.ProcessState.ExitCode())
+	}
 
 	// Setup cgroups for resource management
 	if err := m.setupCgroups(container); err != nil {
@@ -221,19 +238,62 @@ func (m *Manager) Wait(ctx context.Context, container *types.Container) (int, er
 		return -1, fmt.Errorf("failed to find process %d: %w", container.PID, err)
 	}
 
-	// Wait for the process to exit
-	processState, err := process.Wait()
-	if err != nil {
-		return -1, fmt.Errorf("failed to wait for process: %w", err)
+	// Wait for the process to exit with context cancellation support
+	done := make(chan struct{})
+	var processState *os.ProcessState
+	var waitErr error
+
+	go func() {
+		defer close(done)
+		processState, waitErr = process.Wait()
+	}()
+
+	select {
+	case <-done:
+		if waitErr != nil {
+			return -1, fmt.Errorf("failed to wait for process: %w", waitErr)
+		}
+
+		exitCode := processState.ExitCode()
+		container.ExitCode = exitCode
+		container.State = types.StateExited
+		now := time.Now()
+		container.FinishedAt = &now
+
+		return exitCode, nil
+	case <-ctx.Done():
+		// Context cancelled, terminate the process
+		slog.Info("wait cancelled, terminating container", "id", container.ID, "pid", container.PID)
+
+		// Send SIGTERM first
+		if err := process.Signal(syscall.SIGTERM); err != nil {
+			slog.Warn("failed to send SIGTERM", "container", container.ID, "error", err)
+		}
+
+		// Wait a bit for graceful shutdown
+		select {
+		case <-done:
+			// Process exited gracefully
+			if waitErr != nil {
+				return -1, waitErr
+			}
+			return processState.ExitCode(), nil
+		case <-time.After(2 * time.Second):
+			// Force kill if it doesn't exit gracefully
+			slog.Info("force killing container", "id", container.ID, "pid", container.PID)
+			if err := process.Signal(syscall.SIGKILL); err != nil {
+				slog.Warn("failed to send SIGKILL", "container", container.ID, "error", err)
+			}
+
+			// Wait a bit more for SIGKILL
+			select {
+			case <-done:
+				return -128, nil // Indicate killed
+			case <-time.After(1 * time.Second):
+				return -1, fmt.Errorf("container did not exit after SIGKILL")
+			}
+		}
 	}
-
-	exitCode := processState.ExitCode()
-	container.ExitCode = exitCode
-	container.State = types.StateExited
-	now := time.Now()
-	container.FinishedAt = &now
-
-	return exitCode, nil
 }
 
 // setupCgroups creates and configures cgroups for the container

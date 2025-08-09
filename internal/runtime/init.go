@@ -21,6 +21,12 @@ func ContainerInit() error {
 	cmdStr := os.Getenv("CONTAINER_CMD")
 	hostname := os.Getenv("CONTAINER_HOSTNAME")
 
+	slog.Debug("container init environment",
+		"id", containerID,
+		"rootfs", rootfs,
+		"cmd", cmdStr,
+		"hostname", hostname)
+
 	if containerID == "" || rootfs == "" {
 		return fmt.Errorf("missing required container environment variables")
 	}
@@ -32,11 +38,13 @@ func ContainerInit() error {
 		}
 	}
 
+	slog.Debug("setting up filesystem")
 	// Setup filesystem isolation
 	if err := setupFilesystem(rootfs); err != nil {
 		return fmt.Errorf("failed to setup filesystem: %w", err)
 	}
 
+	slog.Debug("setting up mounts")
 	// Setup essential mounts
 	if err := setupMounts(); err != nil {
 		return fmt.Errorf("failed to setup mounts: %w", err)
@@ -49,6 +57,8 @@ func ContainerInit() error {
 	} else {
 		cmd = []string{"/bin/sh"}
 	}
+
+	slog.Debug("about to execute command", "cmd", cmd)
 
 	// Execute the container command
 	return execContainerCommand(cmd)
@@ -212,7 +222,18 @@ func execContainerCommand(cmd []string) error {
 	cmdPath, err := exec.LookPath(cmd[0])
 	if err != nil {
 		// If not found in PATH, try to execute directly
+		slog.Debug("command not found in PATH, trying direct execution", "cmd", cmd[0], "error", err)
 		cmdPath = cmd[0]
+	} else {
+		slog.Debug("command found in PATH", "cmd", cmd[0], "path", cmdPath)
+	}
+
+	// Check if the command file exists and is executable
+	if stat, err := os.Stat(cmdPath); err != nil {
+		slog.Error("command file does not exist", "path", cmdPath, "error", err)
+		return fmt.Errorf("command file does not exist: %s (%w)", cmdPath, err)
+	} else {
+		slog.Debug("command file found", "path", cmdPath, "mode", stat.Mode())
 	}
 
 	// Prepare arguments (including argv[0])
@@ -220,6 +241,8 @@ func execContainerCommand(cmd []string) error {
 
 	// Prepare environment
 	env := os.Environ()
+
+	slog.Info("about to exec", "path", cmdPath, "args", args)
 
 	// Replace current process with container command
 	return syscall.Exec(cmdPath, args, env)

@@ -98,7 +98,6 @@ func New() (*Runtime, error) {
 		slog.Warn("failed to load existing images", "error", err)
 	}
 
-	slog.Info("runtime initialized", "runtime_dir", rt.runtimeDir)
 	return rt, nil
 }
 
@@ -159,7 +158,6 @@ func (r *Runtime) CreateContainer(ctx context.Context, config *types.ContainerCo
 		slog.Warn("failed to persist container state", "container", container.ID, "error", err)
 	}
 
-	slog.Info("container created", "id", container.ID, "name", container.Name, "image", container.Image)
 	return container, nil
 }
 
@@ -214,7 +212,6 @@ func (r *Runtime) StartContainer(ctx context.Context, containerID string) error 
 		slog.Warn("failed to persist container state", "container", container.ID, "error", err)
 	}
 
-	slog.Info("container started", "id", container.ID, "name", container.Name, "pid", container.PID)
 	return nil
 }
 
@@ -252,7 +249,6 @@ func (r *Runtime) StopContainer(ctx context.Context, containerID string, timeout
 		slog.Warn("failed to persist container state", "container", container.ID, "error", err)
 	}
 
-	slog.Info("container stopped", "id", container.ID, "name", container.Name)
 	return nil
 }
 
@@ -295,7 +291,6 @@ func (r *Runtime) RemoveContainer(ctx context.Context, containerID string, force
 	delete(r.sessionContainers, containerID) // Clean up session tracking
 	r.removeContainerFile(containerID)
 
-	slog.Info("container removed", "id", container.ID, "name", container.Name)
 	return nil
 }
 
@@ -402,8 +397,6 @@ func (r *Runtime) RemoveImage(ctx context.Context, imageID string, force bool) e
 
 // Cleanup releases runtime resources
 func (r *Runtime) Cleanup() error {
-	slog.Info("cleaning up runtime", "session_id", r.sessionID[:8])
-
 	// Only stop containers that were started by this runtime session
 	r.mu.Lock()
 	containersToStop := make([]*types.Container, 0)
@@ -418,18 +411,11 @@ func (r *Runtime) Cleanup() error {
 
 	// Stop containers started by this session
 	for _, container := range containersToStop {
-		slog.Info("stopping container started by this session", "container", container.ID[:12])
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		if err := r.StopContainer(ctx, container.ID, 10*time.Second); err != nil {
 			slog.Warn("failed to stop container during cleanup", "container", container.ID, "error", err)
 		}
 		cancel()
-	}
-
-	if len(containersToStop) > 0 {
-		slog.Info("stopped containers from session", "count", len(containersToStop), "session_id", r.sessionID[:8])
-	} else {
-		slog.Debug("no containers to stop from this session")
 	}
 
 	return nil
@@ -485,14 +471,12 @@ func (r *Runtime) loadContainers() error {
 			if container.State == types.StateRunning && container.PID > 0 {
 				if r.isProcessRunning(container.PID) {
 					// Process is still running, keep as running
-					slog.Info("found running container", "id", container.ID[:12], "pid", container.PID)
 				} else {
 					// Process died, mark as stopped
 					container.State = types.StateExited
 					container.ExitCode = -1 // Unknown exit code
 					now := time.Now()
 					container.FinishedAt = &now
-					slog.Info("found dead container", "id", container.ID[:12], "pid", container.PID)
 				}
 			}
 

@@ -64,7 +64,6 @@ func (sm *StorageManager) PrepareRootFS(ctx context.Context, image string, conta
 		return "", fmt.Errorf("failed to create basic filesystem: %w", err)
 	}
 
-	slog.Info("rootfs prepared", "container", containerID, "path", rootfsDir)
 	return rootfsDir, nil
 }
 
@@ -73,8 +72,6 @@ func (sm *StorageManager) MountVolumes(ctx context.Context, container *types.Con
 	if len(container.Config.Volumes) == 0 {
 		return nil
 	}
-
-	slog.Info("mounting volumes for container", "container", container.ID, "count", len(container.Config.Volumes))
 
 	for _, volume := range container.Config.Volumes {
 		// Resolve destination path relative to container rootfs
@@ -111,8 +108,6 @@ func (sm *StorageManager) UnmountVolumes(ctx context.Context, container *types.C
 		return nil
 	}
 
-	slog.Info("unmounting volumes for container", "container", container.ID)
-
 	for _, volume := range container.Config.Volumes {
 		destPath := filepath.Join(container.Config.RootFS, strings.TrimPrefix(volume.Destination, "/"))
 
@@ -128,8 +123,6 @@ func (sm *StorageManager) UnmountVolumes(ctx context.Context, container *types.C
 
 // CleanupContainer cleans up container storage
 func (sm *StorageManager) CleanupContainer(ctx context.Context, containerID string) error {
-	slog.Info("cleaning up storage for container", "container", containerID)
-
 	// Remove container rootfs
 	rootfsDir := filepath.Join(sm.containerDir, "rootfs", containerID)
 	if err := os.RemoveAll(rootfsDir); err != nil {

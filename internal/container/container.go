@@ -49,7 +49,6 @@ func (m *Manager) Create(ctx context.Context, config *types.ContainerConfig) (*t
 		return nil, fmt.Errorf("failed to create container directory: %w", err)
 	}
 
-	slog.Info("container created", "id", containerID, "name", containerName)
 	return container, nil
 }
 
@@ -119,11 +118,6 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		slog.Warn("failed to setup cgroups", "container", container.ID, "error", err)
 	}
 
-	slog.Info("container started",
-		"id", container.ID,
-		"name", container.Name,
-		"pid", container.PID)
-
 	return nil
 }
 
@@ -144,7 +138,6 @@ func (m *Manager) SignalNetworkReady(ctx context.Context, container *types.Conta
 		return fmt.Errorf("failed to send network ready signal: %w", err)
 	}
 
-	slog.Info("sent network ready signal to container", "id", container.ID, "pid", container.PID)
 	return nil
 }
 

@@ -161,16 +161,12 @@ func (r *Runtime) StartContainer(ctx context.Context, containerID string) error 
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
-	// TODO: Temporarily skip network setup to debug container init
-	slog.Info("skipping network setup for debugging")
-	/*
-		// Setup networking after container is started (so we have the PID)
-		if err := r.networkMgr.SetupNetwork(ctx, container); err != nil {
-			// Cleanup container on network failure
-			r.containerMgr.Stop(ctx, container, 5*time.Second)
-			return fmt.Errorf("failed to setup network: %w", err)
-		}
-	*/
+	// Setup networking after container is started (so we have the PID)
+	if err := r.networkMgr.SetupNetwork(ctx, container); err != nil {
+		// Cleanup container on network failure
+		r.containerMgr.Stop(ctx, container, 5*time.Second)
+		return fmt.Errorf("failed to setup network: %w", err)
+	}
 
 	// Update container state
 	now := time.Now()

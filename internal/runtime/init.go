@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -63,7 +62,6 @@ func ContainerInit() error {
 	if f != nil {
 		f.WriteString("about to setup filesystem\n")
 	}
-	slog.Debug("setting up filesystem")
 	// Setup filesystem isolation
 	if err := setupFilesystem(rootfs); err != nil {
 		if f != nil {
@@ -75,7 +73,6 @@ func ContainerInit() error {
 	if f != nil {
 		f.WriteString("filesystem setup complete, about to setup mounts\n")
 	}
-	slog.Debug("setting up mounts")
 	// Setup essential mounts
 	if err := setupMounts(); err != nil {
 		if f != nil {
@@ -95,48 +92,30 @@ func ContainerInit() error {
 	if f != nil {
 		f.WriteString(fmt.Sprintf("about to execute command: %v\n", cmd))
 	}
-	slog.Debug("about to execute command", "cmd", cmd) // Execute the container command
+	// Execute the container command
 	return execContainerCommand(cmd)
 }
 
-// setupFilesystem sets up the container's filesystem using pivot_root
+//setupFilesystem sets up the container's filesystem using chroot
 func setupFilesystem(rootfs string) error {
-	slog.Debug("setting up filesystem", "rootfs", rootfs)
-
 	// Ensure rootfs exists
 	if _, err := os.Stat(rootfs); os.IsNotExist(err) {
 		return fmt.Errorf("rootfs does not exist: %s", rootfs)
 	}
 
-	// Create old_root directory inside new root
-	oldRoot := filepath.Join(rootfs, ".old_root")
-	if err := os.MkdirAll(oldRoot, 0755); err != nil {
-		return fmt.Errorf("failed to create old_root directory: %w", err)
+	// Change to the new root directory
+	if err := os.Chdir(rootfs); err != nil {
+		return fmt.Errorf("failed to change to rootfs directory: %w", err)
 	}
 
-	// Make rootfs a mount point
-	if err := syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
-		return fmt.Errorf("failed to bind mount rootfs: %w", err)
+	// Chroot to the new root
+	if err := syscall.Chroot("."); err != nil {
+		return fmt.Errorf("failed to chroot: %w", err)
 	}
 
-	// Pivot root
-	if err := syscall.PivotRoot(rootfs, oldRoot); err != nil {
-		return fmt.Errorf("failed to pivot root: %w", err)
-	}
-
-	// Change to new root
+	// Change to root directory after chroot
 	if err := os.Chdir("/"); err != nil {
 		return fmt.Errorf("failed to change to new root: %w", err)
-	}
-
-	// Unmount old root
-	if err := syscall.Unmount("/.old_root", syscall.MNT_DETACH); err != nil {
-		slog.Warn("failed to unmount old root", "error", err)
-	}
-
-	// Remove old root directory
-	if err := os.RemoveAll("/.old_root"); err != nil {
-		slog.Warn("failed to remove old root directory", "error", err)
 	}
 
 	return nil
@@ -144,8 +123,6 @@ func setupFilesystem(rootfs string) error {
 
 // setupMounts creates essential mounts inside the container
 func setupMounts() error {
-	slog.Debug("setting up essential mounts")
-
 	// Essential mounts for container
 	mounts := []struct {
 		source string
@@ -190,8 +167,6 @@ func setupMounts() error {
 				"error", err)
 			continue
 		}
-
-		slog.Debug("mounted filesystem", "target", mount.target, "fstype", mount.fstype)
 	}
 
 	// Create essential device files
@@ -267,23 +242,20 @@ func execContainerCommand(cmd []string) error {
 	}
 
 	// Check if the command file exists and is executable
-	if stat, err := os.Stat(cmdPath); err != nil {
+	if _, err := os.Stat(cmdPath); err != nil {
 		slog.Error("command file does not exist", "path", cmdPath, "error", err)
 		// Try to look in PATH as fallback
 		if pathCmd, pathErr := exec.LookPath(cmd[0]); pathErr == nil {
 			cmdPath = pathCmd
-			slog.Debug("command found in PATH", "cmd", cmd[0], "path", cmdPath)
 		} else {
 			return fmt.Errorf("command file does not exist: %s (%w)", cmdPath, err)
 		}
-	} else {
-		slog.Debug("command file found", "path", cmdPath, "mode", stat.Mode())
 	}
 
 	// Prepare arguments (including argv[0])
 	args := cmd
 
-	// Prepare environment - for debugging, let's simplify the environment
+	// Prepare environment
 	env := []string{
 		"PATH=/bin:/usr/bin:/sbin:/usr/sbin",
 		"HOME=/root",

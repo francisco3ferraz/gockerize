@@ -258,66 +258,66 @@ func (sm *StorageManager) copyEssentialBinaries(rootfsDir string) error {
 
 		// Copy binary
 		if err := sm.copyFile(binPath, destPath); err != nil {
-			slog.Debug("failed to copy binary", "src", binPath, "error", err)
 			continue
 		}
 
 		// Make executable
 		if err := os.Chmod(destPath, 0755); err != nil {
-			slog.Debug("failed to set executable permissions", "file", destPath, "error", err)
-		}
-
-		slog.Debug("copied binary", "src", binPath, "dest", destPath)
-	}
-
-	// Try to copy some essential libraries
-	libDirs := []string{
-		"/lib",
-		"/lib64",
-		"/usr/lib",
-		"/lib/x86_64-linux-gnu",
-		"/usr/lib/x86_64-linux-gnu",
-		"/lib64/x86_64-linux-gnu",
-	}
-	for _, libDir := range libDirs {
-		if _, err := os.Stat(libDir); err != nil {
 			continue
 		}
-
-		// Look for common libraries
-		essentialLibs := []string{
-			"ld-linux-x86-64.so.2",
-			"libc.so.6",
-			"libdl.so.2",
-			"libpthread.so.0",
-		}
-
-		for _, lib := range essentialLibs {
-			srcPath := filepath.Join(libDir, lib)
-			if _, err := os.Stat(srcPath); err != nil {
-				continue
-			}
-
-			// For architecture-specific lib dirs, preserve the structure
-			var destPath string
-			if strings.Contains(libDir, "x86_64-linux-gnu") {
-				destPath = filepath.Join(rootfsDir, libDir, lib)
-			} else {
-				destPath = filepath.Join(rootfsDir, libDir, lib)
-			}
-			destDir := filepath.Dir(destPath)
-
-			if err := os.MkdirAll(destDir, 0755); err != nil {
-				continue
-			}
-
-			if err := sm.copyFile(srcPath, destPath); err == nil {
-				slog.Debug("copied library", "src", srcPath, "dest", destPath)
-			}
-		}
+		
+		// Copy dependencies for this binary
+		sm.copyBinaryDependencies(binPath, rootfsDir)
 	}
 
 	return nil
+}
+
+// copyBinaryDependencies copies shared library dependencies for a binary
+func (sm *StorageManager) copyBinaryDependencies(binPath, rootfsDir string) {
+	// Use ldd to find dependencies
+	cmd := exec.Command("ldd", binPath)
+	output, err := cmd.Output()
+	if err != nil {
+		return // Not a dynamically linked binary or ldd failed
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Parse ldd output: 
+		// libselinux.so.1 => /lib/x86_64-linux-gnu/libselinux.so.1 (0x...)
+		// or: /lib64/ld-linux-x86-64.so.2 (0x...)
+		var libPath string
+		if strings.Contains(line, "=>") {
+			parts := strings.Split(line, "=>")
+			if len(parts) >= 2 {
+				pathPart := strings.TrimSpace(parts[1])
+				pathPart = strings.Split(pathPart, " ")[0] // Remove address part
+				libPath = pathPart
+			}
+		} else if strings.HasPrefix(line, "/") {
+			libPath = strings.Split(line, " ")[0]
+		}
+
+		if libPath == "" || libPath == "(0x" {
+			continue
+		}
+
+		// Copy the library
+		if _, err := os.Stat(libPath); err == nil {
+			destPath := filepath.Join(rootfsDir, libPath)
+			destDir := filepath.Dir(destPath)
+			
+			if err := os.MkdirAll(destDir, 0755); err == nil {
+				sm.copyFile(libPath, destPath)
+			}
+		}
+	}
 }
 
 // copyImageToRootfs copies an image directory to the container rootfs

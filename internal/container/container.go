@@ -75,11 +75,6 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		fmt.Sprintf("CONTAINER_HOSTNAME=%s", container.Config.Hostname),
 	}
 
-	slog.Debug("starting container process",
-		"container", container.ID,
-		"command", container.Command,
-		"rootfs", container.Config.RootFS)
-
 	// Add user-defined environment variables
 	cmd.Env = append(cmd.Env, container.Config.Env...)
 
@@ -94,16 +89,10 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	cmd.Stderr = os.Stderr
 
 	// Start the process
-	slog.Debug("about to start container process", "container", container.ID, "cmd", cmd.Args)
-
-	// Try a simpler approach first - let's see if the issue is with namespaces
-	slog.Debug("starting container process now...")
 	if err := cmd.Start(); err != nil {
 		slog.Error("failed to start container process", "container", container.ID, "error", err)
 		return fmt.Errorf("failed to start container process: %w", err)
 	}
-
-	slog.Debug("container process started successfully", "container", container.ID, "pid", cmd.Process.Pid)
 
 	// Update container with process info
 	container.PID = cmd.Process.Pid

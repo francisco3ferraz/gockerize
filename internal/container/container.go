@@ -105,8 +105,8 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	// Prepare the container process
 	cmd := exec.CommandContext(ctx, "/proc/self/exe", "container-init")
 
-	// Set up namespaces - mount and network are always used
-	cloneFlags := uintptr(syscall.CLONE_NEWNS | syscall.CLONE_NEWNET)
+	// Set up namespaces - mount, network, and PID are always used for security
+	cloneFlags := uintptr(syscall.CLONE_NEWNS | syscall.CLONE_NEWNET | syscall.CLONE_NEWPID)
 
 	// Conditionally add user namespace based on config
 	if container.Config.UserNamespace {
@@ -123,13 +123,13 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 			GidMappings: gidMappings,
 		}
 
-		slog.Info("container will use user namespace isolation", "container", container.ID)
+		slog.Info("container will use user namespace isolation", "container", container.ID, "namespaces", "mount+network+pid+user")
 	} else {
 		cmd.SysProcAttr = &syscall.SysProcAttr{
 			Cloneflags: cloneFlags,
 		}
 
-		slog.Info("container will run without user namespace (traditional mode)", "container", container.ID)
+		slog.Info("container will run without user namespace (traditional mode)", "container", container.ID, "namespaces", "mount+network+pid")
 	}
 
 	// Set environment variables for container init

@@ -138,15 +138,34 @@ func (sm *StorageManager) CleanupContainer(ctx context.Context, containerID stri
 	return nil
 }
 
+// parseImageName extracts the image name and tag from a full image reference
+func parseImageName(image string) (string, string) {
+	parts := strings.Split(image, ":")
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return image, "latest"
+}
+
 // createBasicFilesystem creates a minimal filesystem structure
 func (sm *StorageManager) createBasicFilesystem(rootfsDir, image string) error {
 	slog.Debug("creating basic filesystem", "rootfs", rootfsDir, "image", image)
 
+	// Parse image name to get correct path
+	// Convert "redis:latest" to "redis/latest"
+	imageName, tag := parseImageName(image)
+	imageSubPath := filepath.Join(imageName, tag)
+
 	// Check if we have a real image directory to copy from
-	imagePath := filepath.Join(sm.imageDir, "images", image)
+	imagePath := filepath.Join(sm.imageDir, "images", imageSubPath)
+	slog.Debug("checking image path", "imagePath", imagePath)
 	if _, err := os.Stat(imagePath); err == nil {
+		slog.Info("found image directory, copying to rootfs", "imagePath", imagePath, "rootfs", rootfsDir)
 		// Copy from existing image
 		return sm.copyImageToRootfs(imagePath, rootfsDir)
+	} else {
+		// Return error instead of falling back to basic filesystem
+		return fmt.Errorf("image not found: %s. Use 'gockerize pull %s' to download it", image, image)
 	}
 
 	// Create basic directory structure

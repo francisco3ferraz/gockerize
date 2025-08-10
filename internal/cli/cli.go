@@ -387,6 +387,94 @@ func (h *Handler) Images(ctx context.Context, args []string) error {
 	return w.Flush()
 }
 
+// Rmi handles the 'rmi' command to remove images
+func (h *Handler) Rmi(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("no image specified")
+	}
+
+	rmiFlags := flag.NewFlagSet("rmi", flag.ExitOnError)
+	force := rmiFlags.Bool("f", false, "force removal of the image")
+
+	rmiFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, `Usage: gockerize rmi [OPTIONS] IMAGE [IMAGE...]
+
+Remove one or more images
+
+Options:
+  -f, --force    Force removal of the image
+`)
+	}
+
+	if err := rmiFlags.Parse(args); err != nil {
+		return err
+	}
+
+	images := rmiFlags.Args()
+	if len(images) == 0 {
+		return fmt.Errorf("no image specified")
+	}
+
+	for _, image := range images {
+		if err := h.runtime.RemoveImage(ctx, image, *force); err != nil {
+			fmt.Fprintf(os.Stderr, "Error removing image %s: %v\n", image, err)
+			continue
+		}
+		fmt.Printf("Deleted: %s\n", image)
+	}
+
+	return nil
+}
+
+// ImagePrune handles the 'image prune' command to remove unused images
+func (h *Handler) ImagePrune(ctx context.Context, args []string) error {
+	pruneFlags := flag.NewFlagSet("prune", flag.ExitOnError)
+	all := pruneFlags.Bool("a", false, "remove all unused images, not just dangling ones")
+	force := pruneFlags.Bool("f", false, "do not prompt for confirmation")
+
+	pruneFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, `Usage: gockerize image prune [OPTIONS]
+
+Remove unused images
+
+Options:
+  -a, --all      Remove all unused images, not just dangling ones
+  -f, --force    Do not prompt for confirmation
+`)
+	}
+
+	if err := pruneFlags.Parse(args); err != nil {
+		return err
+	}
+
+	if !*force {
+		fmt.Print("WARNING! This will remove all unused images.\nAre you sure you want to continue? [y/N] ")
+		var response string
+		fmt.Scanln(&response)
+		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	}
+
+	removedImages, totalSize, err := h.runtime.PruneImages(ctx, *all)
+	if err != nil {
+		return fmt.Errorf("failed to prune images: %w", err)
+	}
+
+	if len(removedImages) == 0 {
+		fmt.Println("No images to remove")
+		return nil
+	}
+
+	for _, image := range removedImages {
+		fmt.Printf("Deleted: %s\n", image)
+	}
+	fmt.Printf("Total reclaimed space: %s\n", formatSize(totalSize))
+
+	return nil
+}
+
 // Helper functions
 
 func (h *Handler) resolveContainer(containerID string) (*types.Container, error) {

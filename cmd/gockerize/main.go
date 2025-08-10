@@ -141,6 +141,19 @@ func routeCommand(ctx context.Context, cli *cli.Handler, command string, args []
 		return cli.Pull(ctx, args)
 	case "images":
 		return cli.Images(ctx, args)
+	case "rmi":
+		return cli.Rmi(ctx, args)
+	case "image":
+		// Handle subcommands for image
+		if len(args) == 0 {
+			return fmt.Errorf("image command requires a subcommand (prune)")
+		}
+		switch args[0] {
+		case "prune":
+			return cli.ImagePrune(ctx, args[1:])
+		default:
+			return fmt.Errorf("unknown image subcommand: %s", args[0])
+		}
 	case "version":
 		fmt.Printf("gockerize version %s\n", version)
 		return nil

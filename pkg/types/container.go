@@ -128,6 +128,7 @@ type Runtime interface {
 	PullImage(ctx context.Context, name string) (*Image, error)
 	ListImages(ctx context.Context) ([]*Image, error)
 	RemoveImage(ctx context.Context, imageID string, force bool) error
+	PruneImages(ctx context.Context, all bool) ([]string, int64, error)
 
 	// Cleanup
 	Cleanup() error

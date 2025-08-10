@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -444,6 +443,28 @@ func createDeviceFiles() error {
 	return nil
 }
 
+// resolvePath finds the full path of a command by searching PATH directories
+func resolvePath(cmd string, path string) (string, error) {
+	// If already absolute path, check if it exists
+	if cmd[0] == '/' {
+		if _, err := os.Stat(cmd); err == nil {
+			return cmd, nil
+		}
+		return "", fmt.Errorf("command not found: %s", cmd)
+	}
+
+	// Search in PATH directories
+	pathDirs := []string{"/usr/local/bin", "/bin", "/usr/bin", "/sbin", "/usr/sbin"}
+	for _, dir := range pathDirs {
+		fullPath := dir + "/" + cmd
+		if _, err := os.Stat(fullPath); err == nil {
+			return fullPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("command not found: %s", cmd)
+}
+
 // execContainerCommand replaces the current process with the container command
 func execContainerCommand(cmd []string) error {
 	slog.Info("executing container command", "cmd", cmd)
@@ -452,28 +473,11 @@ func execContainerCommand(cmd []string) error {
 		return fmt.Errorf("no command specified")
 	}
 
-	// For debugging, try to use absolute path for common commands
-	var cmdPath string
-	switch cmd[0] {
-	case "echo":
-		cmdPath = "/bin/echo"
-	case "sh":
-		cmdPath = "/bin/sh"
-	case "bash":
-		cmdPath = "/bin/bash"
-	default:
-		cmdPath = cmd[0]
-	}
-
-	// Check if the command file exists and is executable
-	if _, err := os.Stat(cmdPath); err != nil {
-		slog.Error("command file does not exist", "path", cmdPath, "error", err)
-		// Try to look in PATH as fallback
-		if pathCmd, pathErr := exec.LookPath(cmd[0]); pathErr == nil {
-			cmdPath = pathCmd
-		} else {
-			return fmt.Errorf("command file does not exist: %s (%w)", cmdPath, err)
-		}
+	// Resolve command path manually since syscall.Exec doesn't use PATH
+	cmdPath, err := resolvePath(cmd[0], "/usr/local/bin:/bin:/usr/bin:/sbin:/usr/sbin")
+	if err != nil {
+		slog.Error("failed to resolve command", "cmd", cmd[0], "error", err)
+		return err
 	}
 
 	// Prepare arguments (including argv[0])
@@ -481,7 +485,7 @@ func execContainerCommand(cmd []string) error {
 
 	// Prepare environment
 	env := []string{
-		"PATH=/bin:/usr/bin:/sbin:/usr/sbin",
+		"PATH=/usr/local/bin:/bin:/usr/bin:/sbin:/usr/sbin",
 		"HOME=/root",
 		"TERM=xterm",
 	}

@@ -3,6 +3,8 @@ package types
 import (
 	"context"
 	"time"
+
+	"github.com/francisco3ferraz/gockerize/internal/security"
 )
 
 // ContainerState represents the current state of a container
@@ -63,9 +65,10 @@ type ContainerConfig struct {
 	Detached    bool `json:"detached,omitempty"`
 
 	// Security
-	Privileged    bool     `json:"privileged,omitempty"`
-	UserNamespace bool     `json:"user_namespace,omitempty"`
-	Capabilities  []string `json:"capabilities,omitempty"`
+	Privileged    bool                `json:"privileged,omitempty"`
+	UserNamespace bool                `json:"user_namespace,omitempty"`
+	Capabilities  []string            `json:"capabilities,omitempty"`
+	MACConfig     *security.MACConfig `json:"mac_config,omitempty"`
 }
 
 // Volume represents a mounted volume

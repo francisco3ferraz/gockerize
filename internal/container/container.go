@@ -12,12 +12,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/francisco3ferraz/gockerize/internal/security"
 	"github.com/francisco3ferraz/gockerize/pkg/types"
 )
 
 // Manager handles container lifecycle operations
 type Manager struct {
 	containerDir string
+	macManager   *security.MACManager
 }
 
 // getUserMappings returns appropriate UID/GID mappings for user namespace
@@ -68,6 +70,7 @@ func (m *Manager) getUserMappings() ([]syscall.SysProcIDMap, []syscall.SysProcID
 func NewManager(containerDir string) (*Manager, error) {
 	return &Manager{
 		containerDir: containerDir,
+		macManager:   security.NewMACManager(),
 	}, nil
 }
 
@@ -185,6 +188,20 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	container.State = types.StateRunning
 	now := time.Now()
 	container.StartedAt = &now
+
+	// Apply MAC profile if configured
+	if container.Config.MACConfig != nil {
+		if err := m.macManager.ApplyProfile(container.Config.MACConfig, container.PID); err != nil {
+			slog.Warn("failed to apply MAC profile", "container", container.ID, "error", err)
+			// Don't fail container startup for MAC profile errors, just log them
+		}
+	} else if m.macManager.GetAvailableType() != security.MACTypeNone {
+		// Apply default MAC profile if available and no explicit config
+		defaultConfig := m.macManager.GetDefaultConfig()
+		if err := m.macManager.ApplyProfile(defaultConfig, container.PID); err != nil {
+			slog.Warn("failed to apply default MAC profile", "container", container.ID, "error", err)
+		}
+	}
 
 	// Check if process is still alive immediately
 	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {

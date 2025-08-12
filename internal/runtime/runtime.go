@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/francisco3ferraz/gockerize/internal/container"
+	"github.com/francisco3ferraz/gockerize/internal/security"
 	"github.com/francisco3ferraz/gockerize/pkg/types"
 )
 
@@ -42,6 +43,7 @@ type Runtime struct {
 	containerMgr types.ContainerManager
 	networkMgr   types.NetworkManager
 	storageMgr   types.StorageManager
+	macMgr       *security.MACManager
 
 	// Session tracking
 	sessionID         string
@@ -92,6 +94,14 @@ func New() (*Runtime, error) {
 		return nil, fmt.Errorf("failed to create storage manager: %w", err)
 	}
 	rt.storageMgr = storageMgr
+
+	// Initialize MAC manager
+	rt.macMgr = security.NewMACManager()
+
+	// Create default MAC profile if needed
+	if err := rt.macMgr.CreateDefaultProfile(); err != nil {
+		slog.Warn("failed to create default MAC profile", "error", err)
+	}
 
 	// Load existing containers
 	if err := rt.loadContainers(); err != nil {

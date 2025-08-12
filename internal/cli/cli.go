@@ -11,6 +11,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/francisco3ferraz/gockerize/internal/security"
 	"github.com/francisco3ferraz/gockerize/pkg/types"
 )
 
@@ -43,6 +44,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 		ports       = runFlags.String("p", "", "port mappings (e.g., 8080:80)")
 		volumes     = runFlags.String("v", "", "volume mounts (e.g., /host:/container)")
 		userNS      = runFlags.Bool("user-ns", false, "enable user namespace isolation (enhanced security)")
+		secProfile  = runFlags.String("security-profile", "", "AppArmor/SELinux profile (e.g., 'apparmor:my-profile' or 'selinux:container_t')")
 	)
 
 	runFlags.Usage = func() {
@@ -63,12 +65,14 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 			-p, --ports string    Port mappings (host:container)
 			-v, --volume string   Volume mounts (host:container)
 			--user-ns             Enable user namespace isolation (enhanced security)
+			--security-profile    AppArmor/SELinux profile (apparmor:profile or selinux:label)
 
 			Examples:
 			gockerize run alpine:latest
 			gockerize run -it alpine:latest /bin/sh
 			gockerize run -d -p 8080:80 --name web nginx:latest
 			gockerize run --user-ns -v /tmp:/data -e "KEY=value" ubuntu:latest /bin/bash
+			gockerize run --security-profile apparmor:gockerize-default ubuntu:latest
 	`)
 	}
 
@@ -135,6 +139,15 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 			return fmt.Errorf("invalid volume format: %w", err)
 		}
 		config.Volumes = volumeMounts
+	}
+
+	// Parse security profile
+	if *secProfile != "" {
+		macConfig, err := parseSecurityProfile(*secProfile)
+		if err != nil {
+			return fmt.Errorf("invalid security profile format: %w", err)
+		}
+		config.MACConfig = macConfig
 	}
 
 	// Create container
@@ -608,6 +621,36 @@ func parseVolumes(volumes string) ([]types.Volume, error) {
 	}
 
 	return volumeMounts, nil
+}
+
+// parseSecurityProfile parses security profile specifications
+func parseSecurityProfile(profile string) (*security.MACConfig, error) {
+	if profile == "" {
+		return nil, nil
+	}
+
+	parts := strings.SplitN(profile, ":", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid security profile format: %s (expected type:profile, e.g., 'apparmor:my-profile' or 'selinux:container_t')", profile)
+	}
+
+	profileType := strings.ToLower(parts[0])
+	profileValue := parts[1]
+
+	switch profileType {
+	case "apparmor":
+		return &security.MACConfig{
+			Type:    security.MACTypeAppArmor,
+			Profile: profileValue,
+		}, nil
+	case "selinux":
+		return &security.MACConfig{
+			Type:  security.MACTypeSELinux,
+			Label: profileValue,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported security profile type: %s (supported: apparmor, selinux)", profileType)
+	}
 }
 
 // Attach attaches to a running container

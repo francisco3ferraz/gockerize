@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/francisco3ferraz/gockerize/internal/security"
 )
 
 // ContainerInit is called when the main binary is executed with "container-init"
@@ -30,6 +32,7 @@ func ContainerInit() error {
 	rootfs := os.Getenv("CONTAINER_ROOTFS")
 	cmdJSON := os.Getenv("CONTAINER_CMD_JSON")
 	hostname := os.Getenv("CONTAINER_HOSTNAME")
+	capabilitiesJSON := os.Getenv("CONTAINER_CAPABILITIES")
 
 	if f != nil {
 		f.WriteString(fmt.Sprintf("env vars: ID=%s, rootfs=%s, cmd_json=%s, hostname=%s\n",
@@ -123,6 +126,16 @@ func ContainerInit() error {
 	if f != nil {
 		f.WriteString(fmt.Sprintf("about to execute command: %v\n", cmd))
 	}
+
+	// Apply capabilities before exec
+	if err := applyCapabilities(capabilitiesJSON); err != nil {
+		slog.Error("failed to apply capabilities", "error", err)
+		if f != nil {
+			f.WriteString(fmt.Sprintf("capability application failed: %v\n", err))
+		}
+		return fmt.Errorf("failed to apply capabilities: %w", err)
+	}
+
 	// Execute the container command
 	return execContainerCommand(cmd)
 }
@@ -499,4 +512,29 @@ func execContainerCommand(cmd []string) error {
 // makedev creates a device number from major and minor numbers
 func makedev(major, minor int) uint64 {
 	return uint64(((major & 0xfff) << 8) | (minor & 0xff) | ((minor & 0xfff00) << 12))
+}
+
+// applyCapabilities parses and applies capabilities from JSON configuration
+func applyCapabilities(capabilitiesJSON string) error {
+	if capabilitiesJSON == "" {
+		slog.Info("no capabilities specified, using defaults")
+		return nil
+	}
+
+	var capabilities []string
+	if err := json.Unmarshal([]byte(capabilitiesJSON), &capabilities); err != nil {
+		return fmt.Errorf("failed to parse capabilities JSON: %w", err)
+	}
+
+	slog.Info("applying capabilities", "capabilities", capabilities)
+
+	// Create capability manager
+	capManager := security.NewCapabilityManager()
+
+	if err := capManager.ApplyCapabilities(capabilities); err != nil {
+		return fmt.Errorf("failed to apply capabilities: %w", err)
+	}
+
+	slog.Info("capabilities applied successfully")
+	return nil
 }

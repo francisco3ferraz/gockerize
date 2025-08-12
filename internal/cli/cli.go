@@ -45,6 +45,9 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 		volumes     = runFlags.String("v", "", "volume mounts (e.g., /host:/container)")
 		userNS      = runFlags.Bool("user-ns", false, "enable user namespace isolation (enhanced security)")
 		secProfile  = runFlags.String("security-profile", "", "AppArmor/SELinux profile (e.g., 'apparmor:my-profile' or 'selinux:container_t')")
+		capAdd      = runFlags.String("cap-add", "", "add Linux capabilities (comma-separated)")
+		capDrop     = runFlags.String("cap-drop", "", "drop Linux capabilities (comma-separated)")
+		privileged  = runFlags.Bool("privileged", false, "give extended privileges to container (insecure)")
 	)
 
 	runFlags.Usage = func() {
@@ -66,6 +69,9 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 			-v, --volume string   Volume mounts (host:container)
 			--user-ns             Enable user namespace isolation (enhanced security)
 			--security-profile    AppArmor/SELinux profile (apparmor:profile or selinux:label)
+			--cap-add string      Add Linux capabilities (comma-separated)
+			--cap-drop string     Drop Linux capabilities (comma-separated, or 'ALL')
+			--privileged          Give extended privileges to container (insecure)
 
 			Examples:
 			gockerize run alpine:latest
@@ -73,6 +79,8 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 			gockerize run -d -p 8080:80 --name web nginx:latest
 			gockerize run --user-ns -v /tmp:/data -e "KEY=value" ubuntu:latest /bin/bash
 			gockerize run --security-profile apparmor:gockerize-default ubuntu:latest
+			gockerize run --cap-drop ALL --cap-add CHOWN,SETUID alpine:latest
+			gockerize run --cap-drop NET_RAW ubuntu:latest
 	`)
 	}
 
@@ -148,6 +156,15 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 			return fmt.Errorf("invalid security profile format: %w", err)
 		}
 		config.MACConfig = macConfig
+	}
+
+	// Parse capabilities
+	config.Privileged = *privileged
+	if *capAdd != "" {
+		config.CapAdd = parseCapabilities(*capAdd)
+	}
+	if *capDrop != "" {
+		config.CapDrop = parseCapabilities(*capDrop)
 	}
 
 	// Create container
@@ -651,6 +668,33 @@ func parseSecurityProfile(profile string) (*security.MACConfig, error) {
 	default:
 		return nil, fmt.Errorf("unsupported security profile type: %s (supported: apparmor, selinux)", profileType)
 	}
+}
+
+// parseCapabilities parses capability specifications from CLI
+func parseCapabilities(capString string) []string {
+	if capString == "" {
+		return nil
+	}
+
+	var capabilities []string
+	parts := strings.Split(capString, ",")
+
+	for _, part := range parts {
+		cap := strings.TrimSpace(part)
+		if cap != "" {
+			// Special case for ALL
+			if strings.ToUpper(cap) == "ALL" {
+				capabilities = append(capabilities, "ALL")
+			} else {
+				// Normalize capability name - remove CAP_ prefix and lowercase
+				normalizedName := strings.ToLower(cap)
+				normalizedName = strings.TrimPrefix(normalizedName, "cap_")
+				capabilities = append(capabilities, normalizedName)
+			}
+		}
+	}
+
+	return capabilities
 }
 
 // Attach attaches to a running container

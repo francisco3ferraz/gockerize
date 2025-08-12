@@ -20,6 +20,7 @@ import (
 type Manager struct {
 	containerDir string
 	macManager   *security.MACManager
+	capManager   *security.CapabilityManager
 }
 
 // getUserMappings returns appropriate UID/GID mappings for user namespace
@@ -71,6 +72,7 @@ func NewManager(containerDir string) (*Manager, error) {
 	return &Manager{
 		containerDir: containerDir,
 		macManager:   security.NewMACManager(),
+		capManager:   security.NewCapabilityManager(),
 	}, nil
 }
 
@@ -89,6 +91,14 @@ func (m *Manager) Create(ctx context.Context, config *types.ContainerConfig) (*t
 		CreatedAt: time.Now(),
 		Config:    config,
 	}
+
+	// Calculate final capabilities based on configuration
+	finalCaps, err := m.capManager.CalculateFinalCapabilities(config.CapAdd, config.CapDrop, config.Privileged)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate capabilities: %w", err)
+	}
+	// Store calculated capabilities in config
+	container.Config.Capabilities = finalCaps
 
 	// Create container directory
 	containerPath := filepath.Join(m.containerDir, containerID)
@@ -151,11 +161,18 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		return fmt.Errorf("failed to encode command: %w", err)
 	}
 
+	// Encode capabilities as JSON
+	capsJSON, err := json.Marshal(container.Config.Capabilities)
+	if err != nil {
+		return fmt.Errorf("failed to encode capabilities: %w", err)
+	}
+
 	cmd.Env = []string{
 		fmt.Sprintf("CONTAINER_ID=%s", container.ID),
 		fmt.Sprintf("CONTAINER_ROOTFS=%s", container.Config.RootFS),
 		fmt.Sprintf("CONTAINER_CMD_JSON=%s", string(cmdJSON)),
 		fmt.Sprintf("CONTAINER_HOSTNAME=%s", container.Config.Hostname),
+		fmt.Sprintf("CONTAINER_CAPABILITIES=%s", string(capsJSON)),
 		"WAIT_FOR_NETWORK=true", // Signal that container should wait for network setup
 	}
 

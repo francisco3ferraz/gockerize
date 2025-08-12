@@ -67,7 +67,9 @@ type ContainerConfig struct {
 	// Security
 	Privileged    bool                `json:"privileged,omitempty"`
 	UserNamespace bool                `json:"user_namespace,omitempty"`
-	Capabilities  []string            `json:"capabilities,omitempty"`
+	CapAdd        []string            `json:"cap_add,omitempty"`      // Capabilities to add
+	CapDrop       []string            `json:"cap_drop,omitempty"`     // Capabilities to drop
+	Capabilities  []string            `json:"capabilities,omitempty"` // Final computed capabilities
 	MACConfig     *security.MACConfig `json:"mac_config,omitempty"`
 }
 

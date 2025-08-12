@@ -40,6 +40,5 @@ func NewDefaultConfig() *RuntimeConfig {
 
 // Validate checks if the configuration is valid
 func (c *RuntimeConfig) Validate() error {
-	// Add any configuration validation logic here
 	return nil
 }

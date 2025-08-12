@@ -48,6 +48,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 		capAdd      = runFlags.String("cap-add", "", "add Linux capabilities (comma-separated)")
 		capDrop     = runFlags.String("cap-drop", "", "drop Linux capabilities (comma-separated)")
 		privileged  = runFlags.Bool("privileged", false, "give extended privileges to container (insecure)")
+		seccompOpt  = runFlags.String("security-opt", "", "security options (seccomp=profile.json or seccomp=unconfined)")
 	)
 
 	runFlags.Usage = func() {
@@ -72,6 +73,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 			--cap-add string      Add Linux capabilities (comma-separated)
 			--cap-drop string     Drop Linux capabilities (comma-separated, or 'ALL')
 			--privileged          Give extended privileges to container (insecure)
+			--security-opt        Security options (seccomp=profile.json or seccomp=unconfined)
 
 			Examples:
 			gockerize run alpine:latest
@@ -81,6 +83,8 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 			gockerize run --security-profile apparmor:gockerize-default ubuntu:latest
 			gockerize run --cap-drop ALL --cap-add CHOWN,SETUID alpine:latest
 			gockerize run --cap-drop NET_RAW ubuntu:latest
+			gockerize run --security-opt seccomp=unconfined ubuntu:latest
+			gockerize run --security-opt seccomp=/path/to/profile.json ubuntu:latest
 	`)
 	}
 
@@ -165,6 +169,15 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 	}
 	if *capDrop != "" {
 		config.CapDrop = parseCapabilities(*capDrop)
+	}
+
+	// Parse security options (including Seccomp)
+	if *seccompOpt != "" {
+		seccompProfile, err := parseSecurityOptions(*seccompOpt)
+		if err != nil {
+			return fmt.Errorf("invalid security option: %w", err)
+		}
+		config.SeccompProfile = seccompProfile
 	}
 
 	// Create container
@@ -695,6 +708,37 @@ func parseCapabilities(capString string) []string {
 	}
 
 	return capabilities
+}
+
+// parseSecurityOptions parses security options like seccomp profiles
+func parseSecurityOptions(secOpt string) (string, error) {
+	if secOpt == "" {
+		return "", nil
+	}
+
+	// Parse security options in the format "key=value"
+	parts := strings.SplitN(secOpt, "=", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid security option format: %s (expected key=value)", secOpt)
+	}
+
+	key := strings.ToLower(strings.TrimSpace(parts[0]))
+	value := strings.TrimSpace(parts[1])
+
+	switch key {
+	case "seccomp":
+		// Handle seccomp profile specification
+		if value == "unconfined" {
+			return "unconfined", nil
+		}
+		// For file paths, validate they exist
+		if _, err := os.Stat(value); err != nil {
+			return "", fmt.Errorf("seccomp profile file not found: %s", value)
+		}
+		return value, nil
+	default:
+		return "", fmt.Errorf("unsupported security option: %s (supported: seccomp)", key)
+	}
 }
 
 // Attach attaches to a running container

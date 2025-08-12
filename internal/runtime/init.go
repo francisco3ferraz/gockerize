@@ -33,6 +33,7 @@ func ContainerInit() error {
 	cmdJSON := os.Getenv("CONTAINER_CMD_JSON")
 	hostname := os.Getenv("CONTAINER_HOSTNAME")
 	capabilitiesJSON := os.Getenv("CONTAINER_CAPABILITIES")
+	seccompProfile := os.Getenv("CONTAINER_SECCOMP_PROFILE")
 
 	if f != nil {
 		f.WriteString(fmt.Sprintf("env vars: ID=%s, rootfs=%s, cmd_json=%s, hostname=%s\n",
@@ -134,6 +135,15 @@ func ContainerInit() error {
 			f.WriteString(fmt.Sprintf("capability application failed: %v\n", err))
 		}
 		return fmt.Errorf("failed to apply capabilities: %w", err)
+	}
+
+	// Apply Seccomp profile before exec
+	if err := applySeccompProfile(seccompProfile); err != nil {
+		slog.Error("failed to apply seccomp profile", "error", err)
+		if f != nil {
+			f.WriteString(fmt.Sprintf("seccomp application failed: %v\n", err))
+		}
+		return fmt.Errorf("failed to apply seccomp profile: %w", err)
 	}
 
 	// Execute the container command
@@ -536,5 +546,53 @@ func applyCapabilities(capabilitiesJSON string) error {
 	}
 
 	slog.Info("capabilities applied successfully")
+	return nil
+}
+
+// applySeccompProfile applies the specified Seccomp profile
+func applySeccompProfile(profilePath string) error {
+	if profilePath == "" {
+		slog.Info("no seccomp profile specified, using default")
+		profilePath = "default"
+	}
+
+	slog.Info("applying seccomp profile", "profile", profilePath)
+
+	// Create Seccomp manager
+	seccompManager := security.NewSeccompManager()
+
+	if !seccompManager.IsEnabled() {
+		slog.Warn("Seccomp not supported on this system, skipping")
+		return nil
+	}
+
+	var profile *security.SeccompProfile
+	var err error
+
+	if profilePath == "unconfined" {
+		slog.Warn("Running container without Seccomp filtering (unconfined)")
+		return nil
+	} else if profilePath == "default" {
+		// Use default profile
+		profile = seccompManager.GetDefaultProfile()
+	} else {
+		// Load profile from file
+		profile, err = seccompManager.LoadProfileFromFile(profilePath)
+		if err != nil {
+			return fmt.Errorf("failed to load seccomp profile: %w", err)
+		}
+	}
+
+	// Validate profile
+	if err := seccompManager.ValidateProfile(profile); err != nil {
+		return fmt.Errorf("invalid seccomp profile: %w", err)
+	}
+
+	// Apply profile
+	if err := seccompManager.ApplyProfile(profile); err != nil {
+		return fmt.Errorf("failed to apply seccomp profile: %w", err)
+	}
+
+	slog.Info("seccomp profile applied successfully")
 	return nil
 }

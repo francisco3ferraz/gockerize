@@ -65,12 +65,13 @@ type ContainerConfig struct {
 	Detached    bool `json:"detached,omitempty"`
 
 	// Security
-	Privileged    bool                `json:"privileged,omitempty"`
-	UserNamespace bool                `json:"user_namespace,omitempty"`
-	CapAdd        []string            `json:"cap_add,omitempty"`      // Capabilities to add
-	CapDrop       []string            `json:"cap_drop,omitempty"`     // Capabilities to drop
-	Capabilities  []string            `json:"capabilities,omitempty"` // Final computed capabilities
-	MACConfig     *security.MACConfig `json:"mac_config,omitempty"`
+	Privileged     bool                `json:"privileged,omitempty"`
+	UserNamespace  bool                `json:"user_namespace,omitempty"`
+	CapAdd         []string            `json:"cap_add,omitempty"`         // Capabilities to add
+	CapDrop        []string            `json:"cap_drop,omitempty"`        // Capabilities to drop
+	Capabilities   []string            `json:"capabilities,omitempty"`    // Final computed capabilities
+	SeccompProfile string              `json:"seccomp_profile,omitempty"` // Seccomp profile path or "unconfined"
+	MACConfig      *security.MACConfig `json:"mac_config,omitempty"`
 }
 
 // Volume represents a mounted volume

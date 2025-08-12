@@ -18,9 +18,10 @@ import (
 
 // Manager handles container lifecycle operations
 type Manager struct {
-	containerDir string
-	macManager   *security.MACManager
-	capManager   *security.CapabilityManager
+	containerDir   string
+	macManager     *security.MACManager
+	capManager     *security.CapabilityManager
+	seccompManager *security.SeccompManager
 }
 
 // getUserMappings returns appropriate UID/GID mappings for user namespace
@@ -70,9 +71,10 @@ func (m *Manager) getUserMappings() ([]syscall.SysProcIDMap, []syscall.SysProcID
 // NewManager creates a new container manager
 func NewManager(containerDir string) (*Manager, error) {
 	return &Manager{
-		containerDir: containerDir,
-		macManager:   security.NewMACManager(),
-		capManager:   security.NewCapabilityManager(),
+		containerDir:   containerDir,
+		macManager:     security.NewMACManager(),
+		capManager:     security.NewCapabilityManager(),
+		seccompManager: security.NewSeccompManager(),
 	}, nil
 }
 
@@ -173,6 +175,7 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		fmt.Sprintf("CONTAINER_CMD_JSON=%s", string(cmdJSON)),
 		fmt.Sprintf("CONTAINER_HOSTNAME=%s", container.Config.Hostname),
 		fmt.Sprintf("CONTAINER_CAPABILITIES=%s", string(capsJSON)),
+		fmt.Sprintf("CONTAINER_SECCOMP_PROFILE=%s", container.Config.SeccompProfile),
 		"WAIT_FOR_NETWORK=true", // Signal that container should wait for network setup
 	}
 

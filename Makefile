@@ -1,176 +1,127 @@
-# gockerize Container Runtime Makefile
+# Near-perfect Makefile for Go project
 
-# Build variables
-BINARY_NAME = gockerize
-BUILD_DIR = build
-CMD_DIR = ./cmd/gockerize
-PKG = ./...
+# Project variables
+APP_NAME := gockerize
+CMD_DIR := ./cmd/$(APP_NAME)
+BUILD_DIR := ./bin
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -X 'main.version=$(VERSION)' -X 'main.commit=$(COMMIT)' -X 'main.date=$(DATE)'
+GO := go
+GOFMT := gofmt
+GOLINT := golint
+GOTEST := go test
+GOFILES := $(shell find . -type f -name '*.go' -not -path './vendor/*')
 
-# Go build flags
-LDFLAGS = -ldflags="-s -w"
-BUILD_FLAGS = -v $(LDFLAGS)
+# Colors for output
+RED := \033[0;31m
+GREEN := \033[0;32m
+YELLOW := \033[0;33m
+BLUE := \033[0;34m
+NC := \033[0m # No Color
 
-# Version info
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_TIME = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-GIT_COMMIT = $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+.PHONY: all build run clean fmt lint test test-verbose test-short test-race coverage install deps help check pre-commit docker-build docker-run
 
-# Enhanced LDFLAGS with version info
-LDFLAGS = -ldflags="-s -w -X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -X main.gitCommit=$(GIT_COMMIT)"
+all: check build
 
-.PHONY: all build clean test lint install deps setup-dev check fmt vet
-
-# Default target
-all: clean build
-
-# Build the binary
 build:
-	@echo "Building $(BINARY_NAME)..."
+	@echo "$(BLUE)Building $(APP_NAME)...$(NC)"
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 go build $(BUILD_FLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
-	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+	$(GO) build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME) $(CMD_DIR)
+	@echo "$(GREEN)Build complete: $(BUILD_DIR)/$(APP_NAME)$(NC)"
 
-# Build with debug symbols
-build-debug:
-	@echo "Building $(BINARY_NAME) with debug symbols..."
-	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 go build -v -race -o $(BUILD_DIR)/$(BINARY_NAME)-debug $(CMD_DIR)
-
-# Install binary to system
-install: build
-	@echo "Installing $(BINARY_NAME) to /usr/local/bin..."
-	sudo cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/
-	sudo chmod +x /usr/local/bin/$(BINARY_NAME)
-	@echo "Installation complete"
-
-# Clean build artifacts
-clean:
-	@echo "Cleaning build artifacts..."
-	rm -rf $(BUILD_DIR)
-	go clean
-	@echo "Clean complete"
-
-# Run tests
-test:
-	@echo "Running tests..."
-	go test -v $(PKG)
-
-# Run tests with coverage
-test-coverage:
-	@echo "Running tests with coverage..."
-	go test -v -coverprofile=coverage.out $(PKG)
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated: coverage.html"
-
-# Run benchmarks
-bench:
-	@echo "Running benchmarks..."
-	go test -bench=. $(PKG)
-
-# Format code
-fmt:
-	@echo "Formatting code..."
-	go fmt $(PKG)
-
-# Vet code
-vet:
-	@echo "Vetting code..."
-	go vet $(PKG)
-
-# Lint code (requires golangci-lint)
-lint:
-	@echo "Linting code..."
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-	else \
-		echo "golangci-lint not found, install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
-	fi
-
-# Check code quality
-check: fmt vet lint test
-
-# Setup development environment
-setup-dev:
-	@echo "Setting up development environment..."
-	@# Install useful development tools
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	go install golang.org/x/tools/cmd/goimports@latest
-	@echo "Development setup complete"
-
-# Download dependencies
-deps:
-	@echo "Downloading dependencies..."
-	go mod download
-	go mod tidy
-
-# Build for multiple platforms
-build-all: clean
-	@echo "Building for multiple platforms..."
-	@mkdir -p $(BUILD_DIR)
-	
-	# Linux amd64
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 $(CMD_DIR)
-	
-	# Linux arm64
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 $(CMD_DIR)
-	
-	# Darwin amd64 (for development on Intel Macs)
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 $(CMD_DIR)
-	
-	# Darwin arm64 (for development on Apple Silicon Macs)
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 $(CMD_DIR)
-	
-	@echo "Multi-platform build complete"
-
-# Create release archives
-release: build-all
-	@echo "Creating release archives..."
-	@cd $(BUILD_DIR) && \
-	for binary in $(BINARY_NAME)-*; do \
-		if [[ "$$binary" != *".tar.gz" ]]; then \
-			tar -czf "$$binary.tar.gz" "$$binary"; \
-			echo "Created $$binary.tar.gz"; \
-		fi \
-	done
-	@echo "Release archives created"
-
-# Run the binary
 run: build
-	sudo $(BUILD_DIR)/$(BINARY_NAME)
+	@echo "$(BLUE)Running $(APP_NAME)...$(NC)"
+	$(BUILD_DIR)/$(APP_NAME)
 
-# Quick development cycle: format, vet, test, and build
-dev: fmt vet test build
+clean:
+	@echo "$(YELLOW)Cleaning up...$(NC)"
+	rm -rf $(BUILD_DIR)
+	rm -f coverage.out coverage.html
+	@echo "$(GREEN)Clean complete$(NC)"
 
-# Show help
+fmt:
+	@echo "$(BLUE)Formatting code...$(NC)"
+	$(GOFMT) -s -w $(GOFILES)
+	@echo "$(GREEN)Format complete$(NC)"
+
+lint:
+	@echo "$(BLUE)Linting code...$(NC)"
+	@if command -v golint >/dev/null 2>&1; then \
+		$(GOLINT) ./...; \
+	else \
+		echo "$(YELLOW)golint not installed, skipping lint check$(NC)"; \
+	fi
+	@if command -v go >/dev/null 2>&1; then \
+		$(GO) vet ./...; \
+	fi
+	@echo "$(GREEN)Lint complete$(NC)"
+
+test:
+	@echo "$(BLUE)Running tests...$(NC)"
+	$(GOTEST) -v ./...
+
+test-verbose:
+	@echo "$(BLUE)Running tests with verbose output...$(NC)"
+	$(GOTEST) -v -count=1 ./...
+
+test-short:
+	@echo "$(BLUE)Running short tests...$(NC)"
+	$(GOTEST) -short ./...
+
+test-race:
+	@echo "$(BLUE)Running tests with race detection...$(NC)"
+	$(GOTEST) -race ./...
+
+coverage:
+	@echo "$(BLUE)Generating coverage report...$(NC)"
+	$(GOTEST) -coverprofile=coverage.out ./...
+	@$(GO) tool cover -html=coverage.out -o coverage.html
+	@echo "$(GREEN)Coverage report generated: coverage.html$(NC)"
+	@$(GO) tool cover -func=coverage.out | tail -1
+
+install:
+	@echo "$(BLUE)Installing $(APP_NAME)...$(NC)"
+	$(GO) install -ldflags="$(LDFLAGS)" $(CMD_DIR)
+	@echo "$(GREEN)Install complete$(NC)"
+
+deps:
+	@echo "$(BLUE)Tidying dependencies...$(NC)"
+	$(GO) mod tidy
+	$(GO) mod download
+	@echo "$(GREEN)Dependencies updated$(NC)"
+
+check: fmt lint test
+	@echo "$(GREEN)All checks passed!$(NC)"
+
+pre-commit: clean fmt lint test-race coverage
+	@echo "$(GREEN)Pre-commit checks complete!$(NC)"
+
+# Development targets
+dev-setup:
+	@echo "$(BLUE)Setting up development environment...$(NC)"
+	@if ! command -v golint >/dev/null 2>&1; then \
+		echo "$(YELLOW)Installing golint...$(NC)"; \
+		$(GO) install golang.org/x/lint/golint@latest; \
+	fi
+	@echo "$(GREEN)Development setup complete$(NC)"
+
 help:
-	@echo "gockerize Container Runtime - Build System"
-	@echo ""
-	@echo "Available targets:"
-	@echo "  all          - Clean and build (default)"
-	@echo "  build        - Build the binary"
-	@echo "  build-debug  - Build with debug symbols and race detection"
-	@echo "  build-all    - Build for multiple platforms"
-	@echo "  install      - Install binary to /usr/local/bin"
-	@echo "  clean        - Remove build artifacts"
-	@echo "  test         - Run tests"
-	@echo "  test-coverage- Run tests with coverage report"
-	@echo "  bench        - Run benchmarks"
-	@echo "  fmt          - Format code"
-	@echo "  vet          - Vet code"
-	@echo "  lint         - Lint code (requires golangci-lint)"
-	@echo "  check        - Format, vet, lint, and test"
-	@echo "  deps         - Download and tidy dependencies"
-	@echo "  setup-dev    - Setup development environment"
-	@echo "  release      - Create release archives"
-	@echo "  run          - Build and run the binary"
-	@echo "  dev          - Quick development cycle"
-	@echo "  help         - Show this help"
-	@echo ""
-	@echo "Environment variables:"
-	@echo "  VERSION      - Version string (default: git describe or 'dev')"
-	@echo ""
-	@echo "Examples:"
-	@echo "  make build"
-	@echo "  make test"
-	@echo "  make install"
-	@echo "  VERSION=1.0.0 make release"
+	@echo "$(BLUE)Makefile commands:$(NC)"
+	@echo "  $(GREEN)build$(NC)        Build the application"
+	@echo "  $(GREEN)run$(NC)          Build and run the application"
+	@echo "  $(GREEN)clean$(NC)        Remove build artifacts"
+	@echo "  $(GREEN)fmt$(NC)          Format the codebase"
+	@echo "  $(GREEN)lint$(NC)         Lint the codebase"
+	@echo "  $(GREEN)test$(NC)         Run tests"
+	@echo "  $(GREEN)test-verbose$(NC) Run tests with verbose output"
+	@echo "  $(GREEN)test-short$(NC)   Run short tests"
+	@echo "  $(GREEN)test-race$(NC)    Run tests with race detection"
+	@echo "  $(GREEN)coverage$(NC)     Generate test coverage report"
+	@echo "  $(GREEN)install$(NC)      Install the application"
+	@echo "  $(GREEN)deps$(NC)         Tidy go.mod dependencies"
+	@echo "  $(GREEN)check$(NC)        Run fmt, lint, and test"
+	@echo "  $(GREEN)pre-commit$(NC)   Run all pre-commit checks"
+	@echo "  $(GREEN)dev-setup$(NC)    Setup development environment"
+	@echo "  $(GREEN)help$(NC)         Show this help message"

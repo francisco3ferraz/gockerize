@@ -467,7 +467,7 @@ func createDeviceFiles() error {
 }
 
 // resolvePath finds the full path of a command by searching PATH directories
-func resolvePath(cmd string, path string) (string, error) {
+func resolvePath(cmd string) (string, error) {
 	// If already absolute path, check if it exists
 	if cmd[0] == '/' {
 		if _, err := os.Stat(cmd); err == nil {
@@ -497,7 +497,7 @@ func execContainerCommand(cmd []string) error {
 	}
 
 	// Resolve command path manually since syscall.Exec doesn't use PATH
-	cmdPath, err := resolvePath(cmd[0], "/usr/local/bin:/bin:/usr/bin:/sbin:/usr/sbin")
+	cmdPath, err := resolvePath(cmd[0])
 	if err != nil {
 		slog.Error("failed to resolve command", "cmd", cmd[0], "error", err)
 		return err
@@ -569,13 +569,14 @@ func applySeccompProfile(profilePath string) error {
 	var profile *security.SeccompProfile
 	var err error
 
-	if profilePath == "unconfined" {
+	switch profilePath {
+	case "unconfined":
 		slog.Warn("Running container without Seccomp filtering (unconfined)")
 		return nil
-	} else if profilePath == "default" {
+	case "default":
 		// Use default profile
 		profile = seccompManager.GetDefaultProfile()
-	} else {
+	default:
 		// Load profile from file
 		profile, err = seccompManager.LoadProfileFromFile(profilePath)
 		if err != nil {

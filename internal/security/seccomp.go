@@ -23,20 +23,6 @@ const (
 	SeccompActAllow
 )
 
-// BPF instruction structure
-type bpfInstruction struct {
-	code uint16
-	jt   uint8
-	jf   uint8
-	k    uint32
-}
-
-// BPF program structure
-type bpfProgram struct {
-	len    uint16
-	filter *bpfInstruction
-}
-
 // BPF opcodes
 const (
 	BPF_LD  = 0x00
@@ -128,259 +114,6 @@ func isSeccompSupported() bool {
 	return errno == 0
 }
 
-// getSyscallNumber returns the syscall number for a given syscall name
-func getSyscallNumber(name string) (int, bool) {
-	// Use golang.org/x/sys/unix package which has all syscall numbers
-	switch name {
-	case "read":
-		return unix.SYS_READ, true
-	case "write":
-		return unix.SYS_WRITE, true
-	case "open":
-		return unix.SYS_OPEN, true
-	case "close":
-		return unix.SYS_CLOSE, true
-	case "stat":
-		return unix.SYS_STAT, true
-	case "fstat":
-		return unix.SYS_FSTAT, true
-	case "lstat":
-		return unix.SYS_LSTAT, true
-	case "poll":
-		return unix.SYS_POLL, true
-	case "lseek":
-		return unix.SYS_LSEEK, true
-	case "mmap":
-		return unix.SYS_MMAP, true
-	case "mprotect":
-		return unix.SYS_MPROTECT, true
-	case "munmap":
-		return unix.SYS_MUNMAP, true
-	case "brk":
-		return unix.SYS_BRK, true
-	case "rt_sigaction":
-		return unix.SYS_RT_SIGACTION, true
-	case "rt_sigprocmask":
-		return unix.SYS_RT_SIGPROCMASK, true
-	case "rt_sigreturn":
-		return unix.SYS_RT_SIGRETURN, true
-	case "ioctl":
-		return unix.SYS_IOCTL, true
-	case "pread64":
-		return unix.SYS_PREAD64, true
-	case "pwrite64":
-		return unix.SYS_PWRITE64, true
-	case "readv":
-		return unix.SYS_READV, true
-	case "writev":
-		return unix.SYS_WRITEV, true
-	case "access":
-		return unix.SYS_ACCESS, true
-	case "pipe":
-		return unix.SYS_PIPE, true
-	case "select":
-		return unix.SYS_SELECT, true
-	case "sched_yield":
-		return unix.SYS_SCHED_YIELD, true
-	case "mremap":
-		return unix.SYS_MREMAP, true
-	case "msync":
-		return unix.SYS_MSYNC, true
-	case "mincore":
-		return unix.SYS_MINCORE, true
-	case "madvise":
-		return unix.SYS_MADVISE, true
-	case "shmget":
-		return unix.SYS_SHMGET, true
-	case "shmat":
-		return unix.SYS_SHMAT, true
-	case "shmctl":
-		return unix.SYS_SHMCTL, true
-	case "dup":
-		return unix.SYS_DUP, true
-	case "dup2":
-		return unix.SYS_DUP2, true
-	case "pause":
-		return unix.SYS_PAUSE, true
-	case "nanosleep":
-		return unix.SYS_NANOSLEEP, true
-	case "getitimer":
-		return unix.SYS_GETITIMER, true
-	case "alarm":
-		return unix.SYS_ALARM, true
-	case "setitimer":
-		return unix.SYS_SETITIMER, true
-	case "getpid":
-		return unix.SYS_GETPID, true
-	case "sendfile":
-		return unix.SYS_SENDFILE, true
-	case "socket":
-		return unix.SYS_SOCKET, true
-	case "connect":
-		return unix.SYS_CONNECT, true
-	case "accept":
-		return unix.SYS_ACCEPT, true
-	case "sendto":
-		return unix.SYS_SENDTO, true
-	case "recvfrom":
-		return unix.SYS_RECVFROM, true
-	case "sendmsg":
-		return unix.SYS_SENDMSG, true
-	case "recvmsg":
-		return unix.SYS_RECVMSG, true
-	case "shutdown":
-		return unix.SYS_SHUTDOWN, true
-	case "bind":
-		return unix.SYS_BIND, true
-	case "listen":
-		return unix.SYS_LISTEN, true
-	case "getsockname":
-		return unix.SYS_GETSOCKNAME, true
-	case "getpeername":
-		return unix.SYS_GETPEERNAME, true
-	case "socketpair":
-		return unix.SYS_SOCKETPAIR, true
-	case "setsockopt":
-		return unix.SYS_SETSOCKOPT, true
-	case "getsockopt":
-		return unix.SYS_GETSOCKOPT, true
-	case "clone":
-		return unix.SYS_CLONE, true
-	case "fork":
-		return unix.SYS_FORK, true
-	case "vfork":
-		return unix.SYS_VFORK, true
-	case "execve":
-		return unix.SYS_EXECVE, true
-	case "exit":
-		return unix.SYS_EXIT, true
-	case "wait4":
-		return unix.SYS_WAIT4, true
-	case "kill":
-		return unix.SYS_KILL, true
-	case "uname":
-		return unix.SYS_UNAME, true
-	case "fcntl":
-		return unix.SYS_FCNTL, true
-	case "flock":
-		return unix.SYS_FLOCK, true
-	case "fsync":
-		return unix.SYS_FSYNC, true
-	case "fdatasync":
-		return unix.SYS_FDATASYNC, true
-	case "truncate":
-		return unix.SYS_TRUNCATE, true
-	case "ftruncate":
-		return unix.SYS_FTRUNCATE, true
-	case "getdents":
-		return unix.SYS_GETDENTS, true
-	case "getcwd":
-		return unix.SYS_GETCWD, true
-	case "chdir":
-		return unix.SYS_CHDIR, true
-	case "fchdir":
-		return unix.SYS_FCHDIR, true
-	case "rename":
-		return unix.SYS_RENAME, true
-	case "mkdir":
-		return unix.SYS_MKDIR, true
-	case "rmdir":
-		return unix.SYS_RMDIR, true
-	case "creat":
-		return unix.SYS_CREAT, true
-	case "link":
-		return unix.SYS_LINK, true
-	case "unlink":
-		return unix.SYS_UNLINK, true
-	case "symlink":
-		return unix.SYS_SYMLINK, true
-	case "readlink":
-		return unix.SYS_READLINK, true
-	case "chmod":
-		return unix.SYS_CHMOD, true
-	case "fchmod":
-		return unix.SYS_FCHMOD, true
-	case "chown":
-		return unix.SYS_CHOWN, true
-	case "fchown":
-		return unix.SYS_FCHOWN, true
-	case "lchown":
-		return unix.SYS_LCHOWN, true
-	case "umask":
-		return unix.SYS_UMASK, true
-	case "gettimeofday":
-		return unix.SYS_GETTIMEOFDAY, true
-	case "getrlimit":
-		return unix.SYS_GETRLIMIT, true
-	case "getrusage":
-		return unix.SYS_GETRUSAGE, true
-	case "sysinfo":
-		return unix.SYS_SYSINFO, true
-	case "times":
-		return unix.SYS_TIMES, true
-	case "ptrace":
-		return unix.SYS_PTRACE, true
-	case "getuid":
-		return unix.SYS_GETUID, true
-	case "getgid":
-		return unix.SYS_GETGID, true
-	case "setuid":
-		return unix.SYS_SETUID, true
-	case "setgid":
-		return unix.SYS_SETGID, true
-	case "geteuid":
-		return unix.SYS_GETEUID, true
-	case "getegid":
-		return unix.SYS_GETEGID, true
-	case "setpgid":
-		return unix.SYS_SETPGID, true
-	case "getppid":
-		return unix.SYS_GETPPID, true
-	case "getpgrp":
-		return unix.SYS_GETPGRP, true
-	case "setsid":
-		return unix.SYS_SETSID, true
-	case "prctl":
-		return unix.SYS_PRCTL, true
-	case "mount":
-		return unix.SYS_MOUNT, true
-	case "umount2":
-		return unix.SYS_UMOUNT2, true
-	case "reboot":
-		return unix.SYS_REBOOT, true
-	case "openat":
-		return unix.SYS_OPENAT, true
-	case "mkdirat":
-		return unix.SYS_MKDIRAT, true
-	case "unlinkat":
-		return unix.SYS_UNLINKAT, true
-	case "exit_group":
-		return unix.SYS_EXIT_GROUP, true
-	case "epoll_create":
-		return unix.SYS_EPOLL_CREATE, true
-	case "epoll_ctl":
-		return unix.SYS_EPOLL_CTL, true
-	case "epoll_wait":
-		return unix.SYS_EPOLL_WAIT, true
-	case "futex":
-		return unix.SYS_FUTEX, true
-	case "getdents64":
-		return unix.SYS_GETDENTS64, true
-	case "accept4":
-		return unix.SYS_ACCEPT4, true
-	case "eventfd2":
-		return unix.SYS_EVENTFD2, true
-	case "pipe2":
-		return unix.SYS_PIPE2, true
-	case "dup3":
-		return unix.SYS_DUP3, true
-	default:
-		// For any syscalls not explicitly listed, return false
-		// This is safer than trying to maintain a complete mapping
-		return 0, false
-	}
-}
-
 // IsEnabled returns whether Seccomp is supported and enabled
 func (sm *SeccompManager) IsEnabled() bool {
 	return sm.enabled
@@ -400,158 +133,120 @@ func (sm *SeccompManager) GetDefaultProfile() *SeccompProfile {
 	}
 }
 
-// generateBPFProgram generates a BPF program from a Seccomp profile
-func (sm *SeccompManager) generateBPFProgram(profile *SeccompProfile) ([]bpfInstruction, error) {
-	var program []bpfInstruction
-
-	// Load architecture
-	program = append(program, bpfInstruction{
-		code: BPF_LD | BPF_W | BPF_ABS,
-		k:    SECCOMP_DATA_ARCH_OFFSET,
-	})
-
-	// Check architecture (x86_64) - if not x86_64, kill
-	program = append(program, bpfInstruction{
-		code: BPF_JMP | BPF_JEQ | BPF_K,
-		jt:   1,
-		jf:   0,
-		k:    AUDIT_ARCH_X86_64,
-	})
-
-	// Kill if wrong architecture
-	program = append(program, bpfInstruction{
-		code: BPF_RET | BPF_K,
-		k:    0x00000000, // SECCOMP_RET_KILL
-	})
-
-	// Load syscall number
-	program = append(program, bpfInstruction{
-		code: BPF_LD | BPF_W | BPF_ABS,
-		k:    SECCOMP_DATA_NR_OFFSET,
-	})
-
-	// Collect allowed syscalls
-	allowedSyscalls := make([]int, 0)
-	for _, syscallGroup := range profile.Syscalls {
-		if syscallGroup.Action == SeccompActAllow {
-			for _, name := range syscallGroup.Names {
-				if num, exists := getSyscallNumber(name); exists {
-					allowedSyscalls = append(allowedSyscalls, num)
-				}
-			}
-		}
-	}
-
-	// Add checks for allowed syscalls
-	for i, syscallNum := range allowedSyscalls {
-		// Calculate jump offset to allow instruction
-		// We need to jump over remaining syscall checks + default action
-		remainingSyscalls := len(allowedSyscalls) - i - 1
-		jumpToAllow := uint8(remainingSyscalls + 1) // +1 for default action
-
-		program = append(program, bpfInstruction{
-			code: BPF_JMP | BPF_JEQ | BPF_K,
-			jt:   jumpToAllow,
-			jf:   0,
-			k:    uint32(syscallNum),
-		})
-	}
-
-	// Default action for non-matching syscalls
-	defaultReturnValue := uint32(0x00050000 | uint32(syscall.EPERM)) // SECCOMP_RET_ERRNO | EPERM
-	if profile.DefaultAction == SeccompActKill {
-		defaultReturnValue = 0x00000000 // SECCOMP_RET_KILL
-	}
-
-	program = append(program, bpfInstruction{
-		code: BPF_RET | BPF_K,
-		k:    defaultReturnValue,
-	})
-
-	// Allow action for permitted syscalls
-	program = append(program, bpfInstruction{
-		code: BPF_RET | BPF_K,
-		k:    0x7fff0000, // SECCOMP_RET_ALLOW
-	})
-
-	return program, nil
-}
-
-// seccompSyscall performs the seccomp system call
-func seccompSyscall(op int, flags int, args uintptr) error {
-	_, _, errno := syscall.Syscall(unix.SYS_SECCOMP, uintptr(op), uintptr(flags), args)
-	if errno != 0 {
-		return errno
-	}
-	return nil
-}
+// getAllowedSyscalls returns the list of syscalls allowed by the default profile
 func getAllowedSyscalls() []string {
-	return []string{
-		"accept", "accept4", "access", "adjtimex", "alarm", "bind", "brk", "capget", "capset",
-		"chdir", "chmod", "chown", "chown32", "chroot", "clock_adjtime", "clock_getres",
-		"clock_gettime", "clock_nanosleep", "close", "connect", "copy_file_range", "creat",
-		"dup", "dup2", "dup3", "epoll_create", "epoll_create1", "epoll_ctl", "epoll_ctl_old",
-		"epoll_pwait", "epoll_wait", "epoll_wait_old", "eventfd", "eventfd2", "execve",
-		"execveat", "exit", "exit_group", "faccessat", "fadvise64", "fadvise64_64",
-		"fallocate", "fanotify_mark", "fchdir", "fchmod", "fchmodat", "fchown", "fchown32",
-		"fchownat", "fcntl", "fcntl64", "fdatasync", "fgetxattr", "flistxattr", "flock",
-		"fork", "fremovexattr", "fsetxattr", "fstat", "fstat64", "fstatat64", "fstatfs",
-		"fstatfs64", "fsync", "ftruncate", "ftruncate64", "futex", "futimesat", "getcpu",
-		"getcwd", "getdents", "getdents64", "getegid", "getegid32", "geteuid", "geteuid32",
-		"getgid", "getgid32", "getgroups", "getgroups32", "getitimer", "getpeername",
-		"getpgid", "getpgrp", "getpid", "getppid", "getpriority", "getrandom", "getresgid",
-		"getresgid32", "getresuid", "getresuid32", "getrlimit", "get_robust_list",
-		"getrusage", "getsid", "getsockname", "getsockopt", "get_thread_area", "gettid",
-		"gettimeofday", "getuid", "getuid32", "getxattr", "inotify_add_watch",
-		"inotify_init", "inotify_init1", "inotify_rm_watch", "io_cancel", "ioctl",
-		"io_destroy", "io_getevents", "io_pgetevents", "ioprio_get", "ioprio_set",
-		"io_setup", "io_submit", "ipc", "kill", "lchown", "lchown32", "lgetxattr",
-		"link", "linkat", "listen", "listxattr", "llistxattr", "lremovexattr", "lseek",
-		"lsetxattr", "lstat", "lstat64", "madvise", "membarrier", "memfd_create", "mincore",
-		"mkdir", "mkdirat", "mknod", "mknodat", "mlock", "mlock2", "mlockall", "mmap",
-		"mmap2", "mprotect", "mq_getsetattr", "mq_notify", "mq_open", "mq_timedreceive",
-		"mq_timedsend", "mq_unlink", "mremap", "msgctl", "msgget", "msgrcv", "msgsnd",
-		"msync", "munlock", "munlockall", "munmap", "nanosleep", "newfstatat", "_newselect",
-		"open", "openat", "pause", "pipe", "pipe2", "poll", "ppoll", "prctl", "pread64",
-		"preadv", "preadv2", "prlimit64", "pselect6", "ptrace", "pwrite64", "pwritev",
-		"pwritev2", "read", "readahead", "readlink", "readlinkat", "readv", "recv",
-		"recvfrom", "recvmmsg", "recvmsg", "remap_file_pages", "removexattr", "rename",
-		"renameat", "renameat2", "restart_syscall", "rmdir", "rt_sigaction", "rt_sigpending",
-		"rt_sigprocmask", "rt_sigqueueinfo", "rt_sigreturn", "rt_sigsuspend", "rt_sigtimedwait",
-		"rt_tgsigqueueinfo", "sched_getaffinity", "sched_getattr", "sched_getparam",
-		"sched_get_priority_max", "sched_get_priority_min", "sched_getscheduler",
-		"sched_rr_get_interval", "sched_setaffinity", "sched_setattr", "sched_setparam",
-		"sched_setscheduler", "sched_yield", "seccomp", "select", "semctl", "semget",
-		"semop", "semtimedop", "send", "sendfile", "sendfile64", "sendmmsg", "sendmsg",
-		"sendto", "setfsgid", "setfsgid32", "setfsuid", "setfsuid32", "setgid", "setgid32",
-		"setgroups", "setgroups32", "setitimer", "setpgid", "setpriority", "setregid",
-		"setregid32", "setresgid", "setresgid32", "setresuid", "setresuid32", "setreuid",
-		"setreuid32", "setrlimit", "set_robust_list", "setsid", "setsockopt",
-		"set_thread_area", "set_tid_address", "setuid", "setuid32", "setxattr", "shmat",
-		"shmctl", "shmdt", "shmget", "shutdown", "sigaltstack", "signalfd", "signalfd4",
-		"sigpending", "sigprocmask", "sigreturn", "socket", "socketcall", "socketpair",
-		"splice", "stat", "stat64", "statfs", "statfs64", "statx", "symlink", "symlinkat",
-		"sync", "sync_file_range", "syncfs", "sysinfo", "tee", "tgkill", "time", "timer_create",
-		"timer_delete", "timerfd_create", "timerfd_gettime", "timerfd_settime", "timer_getoverrun",
-		"timer_gettime", "timer_settime", "times", "tkill", "truncate", "truncate64",
-		"ugetrlimit", "umask", "uname", "unlink", "unlinkat", "utime", "utimensat", "utimes",
-		"vfork", "vmsplice", "wait4", "waitid", "waitpid", "write", "writev",
+	processControl := []string{
+		"exit", "exit_group", "fork", "vfork", "execve", "execveat",
+		"wait4", "waitid", "waitpid", "kill", "tgkill", "tkill",
+		"getpid", "getppid", "gettid", "getpgid", "getpgrp", "getsid",
+		"setpgid", "setsid",
 	}
-}
 
-// getBlockedSyscalls returns syscalls that should be blocked by default
-func getBlockedSyscalls() []string {
-	return []string{
-		"acct", "add_key", "bpf", "clock_adjtime", "clock_settime", "create_module",
-		"delete_module", "finit_module", "get_kernel_syms", "get_mempolicy",
-		"init_module", "ioperm", "iopl", "kcmp", "kexec_file_load", "kexec_load",
-		"keyctl", "lookup_dcookie", "mbind", "mount", "move_pages", "name_to_handle_at",
-		"nfsservctl", "open_by_handle_at", "perf_event_open", "personality", "pivot_root",
-		"process_vm_readv", "process_vm_writev", "ptrace", "query_module", "quotactl",
-		"reboot", "request_key", "set_mempolicy", "setdomainname", "sethostname",
-		"settimeofday", "stime", "swapon", "swapoff", "sysfs", "_sysctl", "umount",
-		"umount2", "unshare", "uselib", "userfaultfd", "ustat", "vm86", "vm86old",
+	fileSystem := []string{
+		"read", "write", "readv", "writev", "pread64", "pwrite64",
+		"preadv", "pwritev", "preadv2", "pwritev2", "open", "openat",
+		"close", "creat", "access", "faccessat", "lseek", "truncate",
+		"truncate64", "ftruncate", "ftruncate64", "stat", "stat64",
+		"lstat", "lstat64", "fstat", "fstat64", "fstatat64", "newfstatat",
+		"statx", "readlink", "readlinkat", "chmod", "fchmod", "fchmodat",
+		"chown", "fchown", "lchown", "chown32", "fchown32", "lchown32",
+		"fchownat", "link", "linkat", "unlink", "unlinkat", "symlink",
+		"symlinkat", "rename", "renameat", "renameat2", "mkdir", "mkdirat",
+		"rmdir", "mknod", "mknodat", "sync", "fsync", "fdatasync",
+		"syncfs", "chdir", "fchdir", "getcwd", "chroot",
 	}
+
+	memory := []string{
+		"mmap", "mmap2", "munmap", "mprotect", "mremap", "madvise",
+		"mlock", "mlock2", "mlockall", "munlock", "munlockall",
+		"mincore", "membarrier", "memfd_create", "brk",
+	}
+
+	io := []string{
+		"select", "_newselect", "pselect6", "poll", "ppoll", "epoll_create",
+		"epoll_create1", "epoll_ctl", "epoll_ctl_old", "epoll_wait",
+		"epoll_wait_old", "epoll_pwait", "eventfd", "eventfd2", "signalfd",
+		"signalfd4", "pipe", "pipe2", "splice", "tee", "vmsplice",
+		"copy_file_range", "sendfile", "sendfile64",
+	}
+
+	network := []string{
+		"socket", "socketpair", "bind", "connect", "listen", "accept",
+		"accept4", "getsockname", "getpeername", "socketcall", "send",
+		"sendto", "sendmsg", "sendmmsg", "recv", "recvfrom", "recvmsg",
+		"recvmmsg", "shutdown", "setsockopt", "getsockopt",
+	}
+
+	signals := []string{
+		"rt_sigaction", "rt_sigprocmask", "rt_sigpending", "rt_sigtimedwait",
+		"rt_sigsuspend", "rt_sigqueueinfo", "rt_tgsigqueueinfo", "rt_sigreturn",
+		"sigaltstack", "sigpending", "sigprocmask", "sigreturn",
+	}
+
+	time := []string{
+		"time", "gettimeofday", "clock_gettime", "clock_getres", "clock_nanosleep",
+		"clock_adjtime", "adjtimex", "alarm", "nanosleep", "timer_create",
+		"timer_delete", "timer_settime", "timer_gettime", "timer_getoverrun",
+		"timerfd_create", "timerfd_settime", "timerfd_gettime", "times",
+		"getitimer", "setitimer", "utimes", "utime", "utimensat", "futimesat",
+	}
+
+	processInfo := []string{
+		"getuid", "getuid32", "geteuid", "geteuid32", "getgid", "getgid32",
+		"getegid", "getegid32", "getgroups", "getgroups32", "setuid", "setuid32",
+		"seteuid", "setgid", "setgid32", "setegid", "setgroups", "setgroups32",
+		"setreuid", "setreuid32", "setregid", "setregid32", "setresuid",
+		"setresuid32", "setresgid", "setresgid32", "getresuid", "getresuid32",
+		"getresgid", "getresgid32", "setfsuid", "setfsuid32", "setfsgid",
+		"setfsgid32", "capget", "capset",
+	}
+
+	scheduling := []string{
+		"sched_yield", "sched_getparam", "sched_setparam", "sched_getscheduler",
+		"sched_setscheduler", "sched_get_priority_min", "sched_get_priority_max",
+		"sched_rr_get_interval", "sched_getaffinity", "sched_setaffinity",
+		"sched_getattr", "sched_setattr", "getpriority", "setpriority",
+	}
+
+	ipc := []string{
+		"ipc", "msgget", "msgctl", "msgrcv", "msgsnd", "semget", "semctl",
+		"semop", "semtimedop", "shmget", "shmctl", "shmat", "shmdt",
+		"mq_open", "mq_unlink", "mq_timedsend", "mq_timedreceive",
+		"mq_notify", "mq_getsetattr",
+	}
+
+	misc := []string{
+		"uname", "sysinfo", "prctl", "arch_prctl", "restart_syscall",
+		"getcpu", "getrandom", "getrlimit", "setrlimit", "prlimit64",
+		"getrusage", "umask", "dup", "dup2", "dup3", "ioctl", "fcntl",
+		"fcntl64", "flock", "fadvise64", "fadvise64_64", "fallocate",
+		"readahead", "remap_file_pages", "msync", "statfs", "statfs64",
+		"fstatfs", "fstatfs64", "get_thread_area", "set_thread_area",
+		"set_tid_address", "get_robust_list", "set_robust_list",
+		"futex", "pause", "io_setup", "io_destroy", "io_submit",
+		"io_cancel", "io_getevents", "io_pgetevents", "ioprio_get",
+		"ioprio_set", "inotify_init", "inotify_init1", "inotify_add_watch",
+		"inotify_rm_watch", "fanotify_mark", "getxattr", "lgetxattr",
+		"fgetxattr", "setxattr", "lsetxattr", "fsetxattr", "listxattr",
+		"llistxattr", "flistxattr", "removexattr", "lremovexattr",
+		"fremovexattr", "seccomp", "ptrace", "getdents", "getdents64",
+	}
+
+	// Combine all categories
+	var allSyscalls []string
+	allSyscalls = append(allSyscalls, processControl...)
+	allSyscalls = append(allSyscalls, fileSystem...)
+	allSyscalls = append(allSyscalls, memory...)
+	allSyscalls = append(allSyscalls, io...)
+	allSyscalls = append(allSyscalls, network...)
+	allSyscalls = append(allSyscalls, signals...)
+	allSyscalls = append(allSyscalls, time...)
+	allSyscalls = append(allSyscalls, processInfo...)
+	allSyscalls = append(allSyscalls, scheduling...)
+	allSyscalls = append(allSyscalls, ipc...)
+	allSyscalls = append(allSyscalls, misc...)
+
+	return allSyscalls
 }
 
 // LoadProfileFromFile loads a Seccomp profile from a JSON file

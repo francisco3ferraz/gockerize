@@ -813,11 +813,76 @@ func formatSize(bytes int64) string {
 
 // Pull handles the 'pull' command
 func (h *Handler) Pull(ctx context.Context, args []string) error {
-	if len(args) == 0 {
+	// Parse pull command flags
+	pullFlags := flag.NewFlagSet("pull", flag.ExitOnError)
+	showRegistries := pullFlags.Bool("registries", false, "show supported registries")
+
+	pullFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, `Usage: gockerize pull [OPTIONS] IMAGE
+
+Pull an image from a registry
+
+Options:
+  --registries    Show supported registries and exit
+
+Examples:
+  gockerize pull alpine:latest                    # Docker Hub (default)
+  gockerize pull docker.io/library/alpine:latest # Docker Hub (explicit)
+  gockerize pull ghcr.io/owner/image:tag         # GitHub Container Registry
+  gockerize pull quay.io/owner/image:tag         # Quay.io
+  gockerize pull gcr.io/project/image:tag        # Google Container Registry
+  gockerize pull myregistry.com/image:tag        # Custom registry
+
+Supported Registries:
+  - Docker Hub (docker.io, registry-1.docker.io) - default
+  - GitHub Container Registry (ghcr.io)
+  - Quay.io (quay.io)
+  - Google Container Registry (gcr.io)
+  - Any OCI-compliant registry
+`)
+	}
+
+	if err := pullFlags.Parse(args); err != nil {
+		return err
+	}
+
+	if *showRegistries {
+		fmt.Println("Supported Container Registries:")
+		fmt.Println()
+		fmt.Println("Well-known registries:")
+
+		// Import the registry package to use its functions
+		registries := []struct {
+			name        string
+			description string
+			example     string
+		}{
+			{"docker.io (default)", "Docker Hub - the default registry", "alpine:latest"},
+			{"ghcr.io", "GitHub Container Registry", "ghcr.io/owner/image:tag"},
+			{"quay.io", "Red Hat Quay.io", "quay.io/owner/image:tag"},
+			{"gcr.io", "Google Container Registry", "gcr.io/project/image:tag"},
+		}
+
+		for _, reg := range registries {
+			fmt.Printf("  %-25s %s\n", reg.name, reg.description)
+			fmt.Printf("  %-25s Example: %s\n", "", reg.example)
+			fmt.Println()
+		}
+
+		fmt.Println("Custom registries:")
+		fmt.Println("  Any OCI-compliant registry can be used by specifying the full hostname")
+		fmt.Println("  Example: myregistry.com/namespace/image:tag")
+		fmt.Println()
+		return nil
+	}
+
+	remainingArgs := pullFlags.Args()
+	if len(remainingArgs) == 0 {
+		pullFlags.Usage()
 		return fmt.Errorf("image name required")
 	}
 
-	imageName := args[0]
+	imageName := remainingArgs[0]
 	fmt.Printf("Pulling image: %s\n", imageName)
 
 	// Use the runtime's PullImage method
@@ -826,6 +891,6 @@ func (h *Handler) Pull(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to pull image: %w", err)
 	}
 
-	fmt.Printf("Successfully pulled %s (%s)\n", image.Name, formatSize(image.Size))
+	fmt.Printf("Successfully pulled %s:%s (%s)\n", image.Name, image.Tag, formatSize(image.Size))
 	return nil
 }

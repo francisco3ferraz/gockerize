@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,18 +38,94 @@ type OCIDescriptor struct {
 	Digest    string `json:"digest"`
 }
 
+// RegistryType represents different types of container registries
+type RegistryType string
+
+const (
+	RegistryTypeDockerHub RegistryType = "dockerhub"
+	RegistryTypeGitHub    RegistryType = "github"
+	RegistryTypeQuay      RegistryType = "quay"
+	RegistryTypeGCR       RegistryType = "gcr"
+	RegistryTypeGeneric   RegistryType = "generic"
+)
+
+// RegistryConfig holds configuration for different registry types
+type RegistryConfig struct {
+	Type         RegistryType
+	URL          string
+	AuthURL      string
+	Service      string
+	DefaultScope string
+}
+
+// Well-known registry configurations
+var registryConfigs = map[string]RegistryConfig{
+	"registry-1.docker.io": {
+		Type:         RegistryTypeDockerHub,
+		URL:          "https://registry-1.docker.io",
+		AuthURL:      "https://auth.docker.io/token",
+		Service:      "registry.docker.io",
+		DefaultScope: "repository:%s:pull",
+	},
+	"docker.io": {
+		Type:         RegistryTypeDockerHub,
+		URL:          "https://registry-1.docker.io",
+		AuthURL:      "https://auth.docker.io/token",
+		Service:      "registry.docker.io",
+		DefaultScope: "repository:%s:pull",
+	},
+	"ghcr.io": {
+		Type:         RegistryTypeGitHub,
+		URL:          "https://ghcr.io",
+		AuthURL:      "https://ghcr.io/token",
+		Service:      "ghcr.io",
+		DefaultScope: "repository:%s:pull",
+	},
+	"quay.io": {
+		Type:         RegistryTypeQuay,
+		URL:          "https://quay.io",
+		AuthURL:      "https://quay.io/v2/auth",
+		Service:      "quay.io",
+		DefaultScope: "repository:%s:pull",
+	},
+	"gcr.io": {
+		Type:         RegistryTypeGCR,
+		URL:          "https://gcr.io",
+		AuthURL:      "https://gcr.io/v2/token",
+		Service:      "gcr.io",
+		DefaultScope: "repository:%s:pull",
+	},
+}
+
 // Client handles OCI registry operations
 type Client struct {
-	registry  string
-	userAgent string
-	client    *http.Client
+	registry     string
+	registryType RegistryType
+	config       RegistryConfig
+	userAgent    string
+	client       *http.Client
 }
 
 // NewClient creates a new OCI registry client
 func NewClient(registry string) *Client {
+	// Get registry configuration or use generic
+	config, exists := registryConfigs[registry]
+	if !exists {
+		// For unknown registries, assume generic OCI v2 API
+		config = RegistryConfig{
+			Type:         RegistryTypeGeneric,
+			URL:          "https://" + registry,
+			AuthURL:      "https://" + registry + "/v2/token",
+			Service:      registry,
+			DefaultScope: "repository:%s:pull",
+		}
+	}
+
 	return &Client{
-		registry:  registry,
-		userAgent: "gockerize/1.0",
+		registry:     registry,
+		registryType: config.Type,
+		config:       config,
+		userAgent:    "gockerize/1.0",
 		client: &http.Client{
 			Timeout: 300 * time.Second, // 5 minute timeout for downloads
 		},
@@ -79,9 +156,11 @@ func (c *Client) PullImage(ctx context.Context, namespace, name, tag, destPath s
 
 // getManifest retrieves the image manifest from the registry
 func (c *Client) getManifest(ctx context.Context, imageRef, tag string) (*OCIManifest, error) {
-	url := fmt.Sprintf("https://%s/v2/%s/manifests/%s", c.registry, imageRef, tag)
+	// Use configured registry URL
+	registryURL := strings.TrimPrefix(c.config.URL, "https://")
+	url := fmt.Sprintf("https://%s/v2/%s/manifests/%s", registryURL, imageRef, tag)
 
-	slog.Info("getting manifest", "url", url)
+	slog.Info("getting manifest", "url", url, "registry_type", c.registryType)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -186,7 +265,8 @@ func (c *Client) getManifest(ctx context.Context, imageRef, tag string) (*OCIMan
 
 // getManifestByDigest retrieves a specific manifest by digest
 func (c *Client) getManifestByDigest(ctx context.Context, imageRef, digest, token string) (*OCIManifest, error) {
-	url := fmt.Sprintf("https://%s/v2/%s/manifests/%s", c.registry, imageRef, digest)
+	registryURL := strings.TrimPrefix(c.config.URL, "https://")
+	url := fmt.Sprintf("https://%s/v2/%s/manifests/%s", registryURL, imageRef, digest)
 
 	slog.Info("getting manifest by digest", "url", url)
 
@@ -227,14 +307,24 @@ func (c *Client) getManifestByDigest(ctx context.Context, imageRef, digest, toke
 // getAuthToken obtains an authentication token from the registry
 func (c *Client) getAuthToken(ctx context.Context, authHeader, imageRef string) (string, error) {
 	// Parse Www-Authenticate header: Bearer realm="...",service="...",scope="..."
-	// This is a simplified implementation
 	if !strings.HasPrefix(authHeader, "Bearer ") {
 		return "", fmt.Errorf("unsupported auth type")
 	}
 
-	// For Docker Hub, construct auth URL
-	scope := fmt.Sprintf("repository:%s:pull", imageRef)
-	authURL := fmt.Sprintf("https://auth.docker.io/token?service=registry.docker.io&scope=%s", scope)
+	// Try to parse the auth header for realm, service, and scope
+	realm, service, scope := c.parseAuthHeader(authHeader, imageRef)
+
+	// If we couldn't parse, use the configured auth URL
+	if realm == "" {
+		realm = c.config.AuthURL
+		service = c.config.Service
+		scope = fmt.Sprintf(c.config.DefaultScope, imageRef)
+	}
+
+	// Construct auth URL
+	authURL := fmt.Sprintf("%s?service=%s&scope=%s", realm, url.QueryEscape(service), url.QueryEscape(scope))
+
+	slog.Info("requesting auth token", "url", authURL, "registry_type", c.registryType)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", authURL, nil)
 	if err != nil {
@@ -252,18 +342,54 @@ func (c *Client) getAuthToken(ctx context.Context, authHeader, imageRef string) 
 	}
 
 	var authResp struct {
-		Token string `json:"token"`
+		Token       string `json:"token"`
+		AccessToken string `json:"access_token"` // Some registries use this field
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
 		return "", err
 	}
 
-	return authResp.Token, nil
+	// Return whichever token field is populated
+	if authResp.Token != "" {
+		return authResp.Token, nil
+	}
+	return authResp.AccessToken, nil
+}
+
+// parseAuthHeader parses the WWW-Authenticate header to extract realm, service, and scope
+func (c *Client) parseAuthHeader(authHeader, imageRef string) (realm, service, scope string) {
+	// Remove "Bearer " prefix
+	authContent := strings.TrimPrefix(authHeader, "Bearer ")
+
+	// Parse key=value pairs
+	pairs := strings.Split(authContent, ",")
+	values := make(map[string]string)
+
+	for _, pair := range pairs {
+		kv := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+		if len(kv) == 2 {
+			key := kv[0]
+			value := strings.Trim(kv[1], `"`)
+			values[key] = value
+		}
+	}
+
+	realm = values["realm"]
+	service = values["service"]
+	scope = values["scope"]
+
+	// If no scope provided, use default
+	if scope == "" {
+		scope = fmt.Sprintf(c.config.DefaultScope, imageRef)
+	}
+
+	return realm, service, scope
 }
 
 // downloadLayer downloads and extracts a layer to the destination path
 func (c *Client) downloadLayer(ctx context.Context, imageRef string, layer OCIDescriptor, destPath string) error {
-	url := fmt.Sprintf("https://%s/v2/%s/blobs/%s", c.registry, imageRef, layer.Digest)
+	registryURL := strings.TrimPrefix(c.config.URL, "https://")
+	url := fmt.Sprintf("https://%s/v2/%s/blobs/%s", registryURL, imageRef, layer.Digest)
 
 	slog.Info("downloading layer", "url", url, "digest", layer.Digest, "size", layer.Size)
 
@@ -408,7 +534,7 @@ func extractTarReader(tarReader *tar.Reader, destDir string) error {
 	return nil
 }
 
-// ParseImageReference parses image references like "alpine", "library/alpine", "docker.io/library/alpine"
+// ParseImageReference parses image references and supports multiple registries
 func ParseImageReference(imageName string) (registry, namespace, name string) {
 	// Default to Docker Hub if no registry specified
 	registry = "registry-1.docker.io"
@@ -423,15 +549,84 @@ func ParseImageReference(imageName string) (registry, namespace, name string) {
 		// Just image name: "alpine" -> docker.io/library/alpine
 		name = parts[0]
 	case 2:
-		// namespace/name: "library/alpine" -> docker.io/library/alpine
-		namespace = parts[0]
-		name = parts[1]
+		// Check if first part looks like a registry (contains dot or port)
+		if strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":") {
+			// registry/name: "ghcr.io/alpine" -> ghcr.io/library/alpine
+			registry = parts[0]
+			namespace = "library"
+			name = parts[1]
+		} else {
+			// namespace/name: "library/alpine" -> docker.io/library/alpine
+			namespace = parts[0]
+			name = parts[1]
+		}
 	case 3:
-		// registry/namespace/name: "docker.io/library/alpine"
+		// registry/namespace/name: "ghcr.io/library/alpine"
 		registry = parts[0]
 		namespace = parts[1]
 		name = parts[2]
+	default:
+		// For more than 3 parts, treat everything after registry as the image path
+		if len(parts) > 3 {
+			registry = parts[0]
+			// Join the rest as namespace/name
+			namespaceName := strings.Join(parts[1:], "/")
+			lastSlash := strings.LastIndex(namespaceName, "/")
+			if lastSlash > 0 {
+				namespace = namespaceName[:lastSlash]
+				name = namespaceName[lastSlash+1:]
+			} else {
+				namespace = "library"
+				name = namespaceName
+			}
+		}
 	}
 
+	// Handle special registry aliases
+	switch registry {
+	case "docker.io":
+		registry = "registry-1.docker.io"
+	case "ghcr.io":
+		// GitHub Container Registry - keep as is
+	case "quay.io":
+		// Quay.io - keep as is
+	case "gcr.io":
+		// Google Container Registry - keep as is
+	default:
+		// For unknown registries, assume they follow OCI v2 API
+	}
+
+	slog.Debug("parsed image reference",
+		"original", imageName,
+		"registry", registry,
+		"namespace", namespace,
+		"name", name)
+
 	return registry, namespace, name
+}
+
+// GetSupportedRegistries returns a list of well-known supported registries
+func GetSupportedRegistries() []string {
+	registries := make([]string, 0, len(registryConfigs))
+	for registry := range registryConfigs {
+		registries = append(registries, registry)
+	}
+	return registries
+}
+
+// IsKnownRegistry checks if a registry is in the well-known list
+func IsKnownRegistry(registry string) bool {
+	_, exists := registryConfigs[registry]
+	return exists
+}
+
+// AddRegistryConfig allows adding custom registry configurations
+func AddRegistryConfig(registry string, config RegistryConfig) {
+	registryConfigs[registry] = config
+}
+
+// GetRegistryConfig returns the configuration for a given registry
+func GetRegistryConfig(registry string) (RegistryConfig, bool) {
+	config, exists := registryConfigs[registry]
+	return config, exists
 }

@@ -34,17 +34,19 @@ func ContainerInit() error {
 	hostname := os.Getenv("CONTAINER_HOSTNAME")
 	capabilitiesJSON := os.Getenv("CONTAINER_CAPABILITIES")
 	seccompProfile := os.Getenv("CONTAINER_SECCOMP_PROFILE")
+	workingDir := os.Getenv("CONTAINER_WORKDIR")
 
 	if f != nil {
-		f.WriteString(fmt.Sprintf("env vars: ID=%s, rootfs=%s, cmd_json=%s, hostname=%s\n",
-			containerID, rootfs, cmdJSON, hostname))
+		f.WriteString(fmt.Sprintf("env vars: ID=%s, rootfs=%s, cmd_json=%s, hostname=%s, workdir=%s\n",
+			containerID, rootfs, cmdJSON, hostname, workingDir))
 	}
 
 	slog.Debug("container init environment",
 		"id", containerID,
 		"rootfs", rootfs,
 		"cmd_json", cmdJSON,
-		"hostname", hostname)
+		"hostname", hostname,
+		"workingdir", workingDir)
 
 	if containerID == "" || rootfs == "" {
 		if f != nil {
@@ -144,6 +146,22 @@ func ContainerInit() error {
 			f.WriteString(fmt.Sprintf("seccomp application failed: %v\n", err))
 		}
 		return fmt.Errorf("failed to apply seccomp profile: %w", err)
+	}
+
+	// Change to working directory if specified
+	if workingDir != "" {
+		if err := os.Chdir(workingDir); err != nil {
+			slog.Warn("failed to change to working directory", "workdir", workingDir, "error", err)
+			if f != nil {
+				f.WriteString(fmt.Sprintf("failed to chdir to %s: %v\n", workingDir, err))
+			}
+			// Don't fail container startup for working directory errors, just log them
+		} else {
+			slog.Info("changed to working directory", "workdir", workingDir)
+			if f != nil {
+				f.WriteString(fmt.Sprintf("changed to working directory: %s\n", workingDir))
+			}
+		}
 	}
 
 	// Execute the container command

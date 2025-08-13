@@ -181,6 +181,7 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 		fmt.Sprintf("CONTAINER_HOSTNAME=%s", container.Config.Hostname),
 		fmt.Sprintf("CONTAINER_CAPABILITIES=%s", string(capsJSON)),
 		fmt.Sprintf("CONTAINER_SECCOMP_PROFILE=%s", container.Config.SeccompProfile),
+		fmt.Sprintf("CONTAINER_WORKDIR=%s", container.Config.WorkingDir),
 		"WAIT_FOR_NETWORK=true", // Signal that container should wait for network setup
 	}
 

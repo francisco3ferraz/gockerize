@@ -146,6 +146,11 @@ func (r *Runtime) CreateContainer(ctx context.Context, config *types.ContainerCo
 	}
 	container.Config.RootFS = rootfs
 
+	// Mount volumes into the container's rootfs before starting
+	if err := r.storageMgr.MountVolumes(ctx, container); err != nil {
+		return nil, fmt.Errorf("failed to mount volumes: %w", err)
+	}
+
 	// Store container
 	r.containers[container.ID] = container
 
@@ -278,6 +283,11 @@ func (r *Runtime) RemoveContainer(ctx context.Context, containerID string, force
 	// Remove container
 	if err := r.containerMgr.Remove(ctx, container, force); err != nil {
 		return fmt.Errorf("failed to remove container: %w", err)
+	}
+
+	// Unmount volumes 
+	if err := r.storageMgr.UnmountVolumes(ctx, container); err != nil {
+		slog.Warn("failed to unmount volumes", "container", container.ID, "error", err)
 	}
 
 	// Clean up storage

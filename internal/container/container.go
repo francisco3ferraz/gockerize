@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -118,7 +119,7 @@ func (m *Manager) Create(ctx context.Context, config *types.ContainerConfig) (*t
 
 // Start starts a container with proper namespace isolation
 func (m *Manager) Start(ctx context.Context, container *types.Container) error {
-	if container.State != types.StateCreated && container.State != types.StateStopped {
+	if container.State != types.StateCreated && container.State != types.StateStopped && container.State != types.StateExited {
 		return fmt.Errorf("cannot start container in state: %s", container.State)
 	}
 
@@ -215,6 +216,11 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 	now := time.Now()
 	container.StartedAt = &now
 
+	// Setup cgroups for resource management immediately after getting PID
+	if err := m.setupCgroups(container); err != nil {
+		slog.Warn("failed to setup cgroups", "container", container.ID, "error", err)
+	}
+
 	// Apply MAC profile if configured
 	if container.Config.MACConfig != nil {
 		if err := m.macManager.ApplyProfile(container.Config.MACConfig, container.PID); err != nil {
@@ -235,11 +241,6 @@ func (m *Manager) Start(ctx context.Context, container *types.Container) error {
 			"container", container.ID,
 			"exit_code", cmd.ProcessState.ExitCode())
 		return fmt.Errorf("container process exited immediately with code %d", cmd.ProcessState.ExitCode())
-	}
-
-	// Setup cgroups for resource management
-	if err := m.setupCgroups(container); err != nil {
-		slog.Warn("failed to setup cgroups", "container", container.ID, "error", err)
 	}
 
 	return nil
@@ -428,17 +429,41 @@ func (m *Manager) setupCgroups(container *types.Container) error {
 		return fmt.Errorf("failed to create cgroup directory: %w", err)
 	}
 
-	// Add process to cgroup
-	procsFile := filepath.Join(cgroupPath, "cgroup.procs")
-	if err := os.WriteFile(procsFile, []byte(strconv.Itoa(container.PID)), 0644); err != nil {
-		return fmt.Errorf("failed to add process to cgroup: %w", err)
+	// Try to enable memory controller first
+	if container.Config.Memory > 0 {
+		if err := m.enableMemoryController(cgroupPath); err != nil {
+			slog.Warn("failed to enable memory controller", "container", container.ID, "error", err)
+		}
 	}
 
-	// Set memory limit if specified
-	if container.Config.Memory > 0 {
+	// Add process to cgroup - use a more robust approach
+	procsFile := filepath.Join(cgroupPath, "cgroup.procs")
+	pidStr := strconv.Itoa(container.PID)
+	
+	// Try multiple times with small delays as the process might be transitioning
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		if err := os.WriteFile(procsFile, []byte(pidStr), 0644); err != nil {
+			lastErr = err
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		lastErr = nil
+		break
+	}
+	
+	if lastErr != nil {
+		slog.Warn("failed to add process to cgroup after retries", "container", container.ID, "error", lastErr)
+		// Don't fail container startup for cgroup issues, just log them
+	}
+
+	// Set memory limit if specified and we successfully added the process
+	if container.Config.Memory > 0 && lastErr == nil {
 		memoryLimit := filepath.Join(cgroupPath, "memory.max")
 		if err := os.WriteFile(memoryLimit, []byte(strconv.FormatInt(container.Config.Memory, 10)), 0644); err != nil {
 			slog.Warn("failed to set memory limit", "container", container.ID, "error", err)
+		} else {
+			slog.Info("memory limit set successfully", "container", container.ID, "limit", container.Config.Memory)
 		}
 	}
 
@@ -448,6 +473,77 @@ func (m *Manager) setupCgroups(container *types.Container) error {
 		cpuMaxValue := fmt.Sprintf("%d %d", container.Config.CPUQuota, container.Config.CPUPeriod)
 		if err := os.WriteFile(cpuMax, []byte(cpuMaxValue), 0644); err != nil {
 			slog.Warn("failed to set CPU limit", "container", container.ID, "error", err)
+		}
+	}
+
+	return nil
+}
+
+// enableMemoryController tries to enable the memory controller in cgroup v2
+func (m *Manager) enableMemoryController(cgroupPath string) error {
+	// First try to enable in parent directory
+	parentPath := filepath.Dir(cgroupPath)
+	parentSubtree := filepath.Join(parentPath, "cgroup.subtree_control")
+	
+	if _, err := os.Stat(parentSubtree); err == nil {
+		// Read current controllers
+		if content, err := os.ReadFile(parentSubtree); err == nil {
+			controllers := string(content)
+			if !strings.Contains(controllers, "memory") {
+				// Try to enable memory controller
+				if err := os.WriteFile(parentSubtree, []byte("+memory"), 0644); err == nil {
+					slog.Debug("enabled memory controller in parent cgroup", "path", parentPath)
+				}
+			}
+		}
+	}
+	
+	// Now try to enable in this cgroup's subtree_control
+	subtreeControl := filepath.Join(cgroupPath, "cgroup.subtree_control") 
+	if _, err := os.Stat(subtreeControl); err == nil {
+		if content, err := os.ReadFile(subtreeControl); err == nil {
+			controllers := string(content)
+			if !strings.Contains(controllers, "memory") {
+				if err := os.WriteFile(subtreeControl, []byte("+memory"), 0644); err == nil {
+					slog.Debug("enabled memory controller in cgroup", "path", cgroupPath)
+				}
+			}
+		}
+	}
+	
+	return nil
+}
+
+// enableCgroupControllers enables memory and cpu controllers in the specified cgroup
+func (m *Manager) enableCgroupControllers(cgroupPath string) error {
+	// Check if cgroup.subtree_control exists (cgroup v2)
+	subtreeControlPath := filepath.Join(cgroupPath, "cgroup.subtree_control")
+	if _, err := os.Stat(subtreeControlPath); os.IsNotExist(err) {
+		// cgroup v1 or controller doesn't exist, skip
+		return nil
+	}
+
+	// Read current controllers
+	currentControllers, err := os.ReadFile(subtreeControlPath)
+	if err != nil {
+		return fmt.Errorf("failed to read cgroup.subtree_control: %w", err)
+	}
+
+	controllersStr := string(currentControllers)
+	
+	// Enable memory controller if not already enabled
+	if !strings.Contains(controllersStr, "memory") {
+		if err := os.WriteFile(subtreeControlPath, []byte("+memory"), 0644); err != nil {
+			// Ignore permission errors as they are common in containers
+			return nil
+		}
+	}
+
+	// Enable cpu controller if not already enabled  
+	if !strings.Contains(controllersStr, "cpu") {
+		if err := os.WriteFile(subtreeControlPath, []byte("+cpu"), 0644); err != nil {
+			// Ignore permission errors as they are common in containers
+			return nil
 		}
 	}
 

@@ -563,7 +563,6 @@ func applyCapabilities(capabilitiesJSON string) error {
 		return fmt.Errorf("failed to apply capabilities: %w", err)
 	}
 
-	slog.Info("capabilities applied successfully")
 	return nil
 }
 

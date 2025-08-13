@@ -117,7 +117,15 @@ func (nm *NetworkManager) SetupNetwork(ctx context.Context, container *types.Con
 func (nm *NetworkManager) TeardownNetwork(ctx context.Context, container *types.Container) error {
 	slog.Info("tearing down network for container", "id", container.ID)
 
-	// In simplified mode, just remove port forwarding rules if any
+	// Generate veth pair names (same as in SetupNetwork)
+	vethHost := fmt.Sprintf("veth%s", container.ID[:8])
+
+	// Remove veth pair (this will clean up both host and guest interfaces)
+	if err := nm.deleteVethPair(vethHost); err != nil {
+		slog.Warn("failed to delete veth pair", "container", container.ID, "veth", vethHost, "error", err)
+	}
+
+	// Remove port forwarding rules if any
 	if err := nm.removePortForwarding(container); err != nil {
 		slog.Warn("failed to remove port forwarding", "container", container.ID, "error", err)
 	}

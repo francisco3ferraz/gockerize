@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -393,6 +394,102 @@ Options:
 
 		if err := h.runtime.StopContainer(ctx, container.ID, *timeout); err != nil {
 			fmt.Fprintf(os.Stderr, "Error stopping container %s: %v\n", containerID, err)
+			continue
+		}
+
+		fmt.Println(containerID)
+	}
+
+	return nil
+}
+
+// Start handles the 'start' command
+func (h *Handler) Start(ctx context.Context, args []string) error {
+	// Parse start command flags
+	startFlags := flag.NewFlagSet("start", flag.ExitOnError)
+
+	startFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, `Usage: gockerize start CONTAINER [CONTAINER...]
+
+Start one or more stopped containers
+
+`)
+	}
+
+	if err := startFlags.Parse(args); err != nil {
+		return err
+	}
+
+	containerIDs := startFlags.Args()
+	if len(containerIDs) == 0 {
+		startFlags.Usage()
+		return fmt.Errorf("container ID required")
+	}
+
+	// Start each container
+	for _, containerID := range containerIDs {
+		// Resolve container ID (support short IDs)
+		container, err := h.resolveContainer(containerID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			continue
+		}
+
+		if err := h.runtime.StartContainer(ctx, container.ID); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting container %s: %v\n", containerID, err)
+			continue
+		}
+
+		fmt.Println(containerID)
+	}
+
+	return nil
+}
+
+// Restart handles the 'restart' command
+func (h *Handler) Restart(ctx context.Context, args []string) error {
+	// Parse restart command flags
+	restartFlags := flag.NewFlagSet("restart", flag.ExitOnError)
+	timeout := restartFlags.Duration("t", 10*time.Second, "timeout before force killing")
+
+	restartFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, `Usage: gockerize restart [OPTIONS] CONTAINER [CONTAINER...]
+
+Restart one or more containers
+
+Options:
+  -t, --time duration   Seconds to wait for stop before killing (default 10s)
+`)
+	}
+
+	if err := restartFlags.Parse(args); err != nil {
+		return err
+	}
+
+	containerIDs := restartFlags.Args()
+	if len(containerIDs) == 0 {
+		restartFlags.Usage()
+		return fmt.Errorf("container ID required")
+	}
+
+	// Restart each container
+	for _, containerID := range containerIDs {
+		// Resolve container ID (support short IDs)
+		container, err := h.resolveContainer(containerID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			continue
+		}
+
+		// Stop the container first (if it's running)
+		if err := h.runtime.StopContainer(ctx, container.ID, *timeout); err != nil {
+			// If stopping fails, it might already be stopped, continue to start
+			slog.Warn("failed to stop container during restart", "container", containerID, "error", err)
+		}
+
+		// Start the container
+		if err := h.runtime.StartContainer(ctx, container.ID); err != nil {
+			fmt.Fprintf(os.Stderr, "Error restarting container %s: %v\n", containerID, err)
 			continue
 		}
 

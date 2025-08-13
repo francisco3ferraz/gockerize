@@ -76,9 +76,28 @@ func (sm *StorageManager) MountVolumes(ctx context.Context, container *types.Con
 		// Resolve destination path relative to container rootfs
 		destPath := filepath.Join(container.Config.RootFS, strings.TrimPrefix(volume.Destination, "/"))
 
-		// Create destination directory
-		if err := os.MkdirAll(destPath, 0755); err != nil {
-			return fmt.Errorf("failed to create volume destination %s: %w", destPath, err)
+		// Check if source is a file or directory to handle mount target correctly
+		sourceStat, err := os.Stat(volume.Source)
+		if err != nil {
+			return fmt.Errorf("failed to stat volume source %s: %w", volume.Source, err)
+		}
+
+		if sourceStat.IsDir() {
+			// Source is a directory, create destination directory
+			if err := os.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("failed to create volume destination %s: %w", destPath, err)
+			}
+		} else {
+			// Source is a file, create destination file
+			destDir := filepath.Dir(destPath)
+			if err := os.MkdirAll(destDir, 0755); err != nil {
+				return fmt.Errorf("failed to create volume destination directory %s: %w", destDir, err)
+			}
+			
+			// Create empty file
+			if err := os.WriteFile(destPath, []byte{}, 0644); err != nil {
+				return fmt.Errorf("failed to create volume destination file %s: %w", destPath, err)
+			}
 		}
 
 		// Mount flags

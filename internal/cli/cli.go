@@ -15,6 +15,65 @@ import (
 	"github.com/francisco3ferraz/gockerize/pkg/types"
 )
 
+// expandCombinedFlags processes arguments to expand combined flags like -it into -i -t
+func expandCombinedFlags(args []string) []string {
+	var result []string
+	
+	// Flags that take values (can't be combined with others)
+	valueFlags := map[rune]bool{
+		'w': true, // workdir
+		'v': true, // volume  
+		'e': true, // env
+		'p': true, // ports
+		'm': true, // memory
+	}
+	
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && len(arg) > 2 {
+			// This is a potentially combined flag (starts with single dash, more than 2 chars)
+			expanded := false
+			flags := arg[1:] // Remove the leading dash
+			
+			// Check if any flag takes a value - if so, don't expand
+			hasValueFlag := false
+			for _, char := range flags {
+				if valueFlags[char] {
+					hasValueFlag = true
+					break
+				}
+			}
+			
+			if !hasValueFlag {
+				// Check if all characters are valid single-letter flags
+				validFlags := "dit" // Only boolean flags can be combined
+				allValid := true
+				for _, char := range flags {
+					if !strings.ContainsRune(validFlags, char) {
+						allValid = false
+						break
+					}
+				}
+				
+				if allValid {
+					// Expand the combined flags
+					for _, char := range flags {
+						result = append(result, "-"+string(char))
+					}
+					expanded = true
+				}
+			}
+			
+			if !expanded {
+				result = append(result, arg)
+			}
+		} else {
+			result = append(result, arg)
+		}
+	}
+	
+	return result
+}
+
 // Handler handles CLI commands
 type Handler struct {
 	runtime types.Runtime
@@ -89,7 +148,10 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 	`)
 	}
 
-	if err := runFlags.Parse(args); err != nil {
+	// Pre-process args to handle combined flags like -it
+	processedArgs := expandCombinedFlags(args)
+
+	if err := runFlags.Parse(processedArgs); err != nil {
 		return err
 	}
 

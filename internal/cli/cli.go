@@ -36,6 +36,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 		detach      = runFlags.Bool("d", false, "run in detached mode")
 		interactive = runFlags.Bool("i", false, "run in interactive mode")
 		tty         = runFlags.Bool("t", false, "allocate a pseudo-TTY")
+		name        = runFlags.String("name", "", "container name")
 		hostname    = runFlags.String("hostname", "", "container hostname")
 		memory      = runFlags.String("m", "", "memory limit (e.g., 512m, 1g)")
 		cpuShares   = runFlags.Int64("cpu-shares", 0, "CPU shares (relative weight)")
@@ -77,7 +78,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 
 			Examples:
 			gockerize run alpine:latest
-			gockerize run -it alpine:latest /bin/sh
+			gockerize run -i -t alpine:latest /bin/sh
 			gockerize run -d -p 8080:80 --name web nginx:latest
 			gockerize run --user-ns -v /tmp:/data -e "KEY=value" ubuntu:latest /bin/bash
 			gockerize run --security-profile apparmor:gockerize-default ubuntu:latest
@@ -106,6 +107,7 @@ func (h *Handler) Run(ctx context.Context, args []string) error {
 
 	// Build container configuration
 	config := &types.ContainerConfig{
+		Name:          *name,
 		Command:       command,   // Set the command in config
 		RootFS:        imageName, // For now, image name is the rootfs
 		WorkingDir:    *workdir,

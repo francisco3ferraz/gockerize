@@ -36,6 +36,9 @@ type Container struct {
 
 // ContainerConfig holds container configuration
 type ContainerConfig struct {
+	// Identity
+	Name string `json:"name,omitempty"`
+
 	// Command and args
 	Command []string `json:"command,omitempty"`
 

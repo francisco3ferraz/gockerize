@@ -133,30 +133,11 @@ func (r *Runtime) CreateContainer(ctx context.Context, config *types.ContainerCo
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Generate container ID and name
-	containerID := generateID()
-	containerName := fmt.Sprintf("gockerize_%s", containerID[:12])
-
-	// Create container object
-	container := &types.Container{
-		ID:        containerID,
-		Name:      containerName,
-		Image:     config.RootFS,  // For now, image name is the rootfs path
-		Command:   config.Command, // Use command from config
-		State:     types.StateCreated,
-		CreatedAt: time.Now(),
-		Config:    config,
-	}
-
 	// Create container using manager
-	createdContainer, err := r.containerMgr.Create(ctx, config)
+	container, err := r.containerMgr.Create(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
-
-	// Update container with created info
-	container.ID = createdContainer.ID
-	container.Name = createdContainer.Name
 
 	// Prepare rootfs
 	rootfs, err := r.storageMgr.PrepareRootFS(ctx, config.RootFS, container.ID)

@@ -82,7 +82,12 @@ func NewManager(containerDir string) (*Manager, error) {
 func (m *Manager) Create(ctx context.Context, config *types.ContainerConfig) (*types.Container, error) {
 	// Generate container ID
 	containerID := generateContainerID()
-	containerName := fmt.Sprintf("gockerize_%s", containerID[:12])
+	
+	// Use provided name or generate default
+	containerName := config.Name
+	if containerName == "" {
+		containerName = fmt.Sprintf("gockerize_%s", containerID[:12])
+	}
 
 	container := &types.Container{
 		ID:        containerID,

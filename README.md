@@ -384,47 +384,6 @@ Gockerize uses structured logging. Check system logs:
 journalctl -u gockerize
 ```
 
-## 📈 Performance Considerations
-
-### Resource Usage
-- **Memory**: ~50MB base runtime overhead
-- **Storage**: Images stored efficiently with layer deduplication
-- **CPU**: Minimal overhead for container operations
-- **Network**: Native bridge performance
-
-### Scaling Limits
-- **Containers**: Limited by system resources
-- **Images**: Limited by available storage
-- **Networks**: Single bridge network (future: multiple networks)
-
-### Optimization Tips
-- Use smaller base images (Alpine Linux)
-- Clean up unused images regularly (`gockerize image prune`)
-- Monitor container resource usage
-- Use read-only root filesystems when possible
-
-## 🔮 Roadmap
-
-### Planned Features
-- [ ] **Multi-platform Support**: Support for different architectures
-- [ ] **Custom Networks**: User-defined bridge networks
-- [ ] **Container Compose**: Multi-container application definitions
-- [ ] **Registry Authentication**: Private registry support
-- [ ] **Health Checks**: Container health monitoring
-- [ ] **Resource Monitoring**: Real-time resource usage
-- [ ] **Logging Driver**: Structured container log collection
-- [ ] **Plugin System**: Extensible runtime plugins
-
-### Future Enhancements
-- [ ] **Windows Support**: Windows container runtime
-- [ ] **Kubernetes Integration**: CRI-compatible runtime
-- [ ] **Image Building**: Built-in image creation capabilities
-- [ ] **Cluster Support**: Multi-node container orchestration
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
@@ -434,12 +393,6 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/francisco3ferraz/gockerize/issues)
-- **Documentation**: This README and inline code documentation
-- **Community**: Discussions in GitHub repository
 
 ## 🙏 Acknowledgments
 
